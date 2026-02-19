@@ -1,0 +1,18 @@
+{
+  "name": "calls-tracker",
+  "version": "1.0.0",
+  "description": "Influencer prediction reputation system — turn tweets into trackable markets",
+  "type": "module",
+  "scripts": {
+    "call": "bun run src/cli/call.ts",
+    "track": "bun run src/cli/track.ts",
+    "dashboard": "bun run src/cli/dashboard.ts",
+    "resolve": "bun run src/cli/resolve.ts",
+    "demo": "bun run src/cli/demo.ts",
+    "dry-run": "DRY_RUN=true bun run src/cli/call.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@coral-xyz/anchor": "^0.30.0"
+  }
+}
