@@ -1,0 +1,16 @@
+{
+  "name": "trust-proof-explorer",
+  "version": "1.0.0",
+  "description": "Verifiable oracle transparency dashboard for Baozi prediction markets",
+  "type": "module",
+  "scripts": {
+    "explorer": "bun run src/cli/explorer.ts",
+    "stats": "bun run src/cli/stats.ts",
+    "compare": "bun run src/cli/compare.ts",
+    "export": "bun run src/cli/export.ts",
+    "demo": "bun run src/cli/demo.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0"
+  }
+}
