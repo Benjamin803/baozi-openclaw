@@ -1,8 +1,15 @@
 /**
- * News & Event Detection Module
+ * News & Event Detection Module — v7.0 Compliant
  *
- * Monitors RSS feeds, crypto prices, and generates prediction market questions.
- * Returns MarketProposal objects for the factory to create on-chain.
+ * Parimutuel Rules v7.0: ONLY event-based (Type A) markets allowed.
+ * - Price prediction markets: BANNED
+ * - Measurement-period markets: BANNED
+ * - One-line test: "Can a bettor observe the likely outcome while betting is open?" → BLOCKED
+ *
+ * Good sources → Good markets:
+ * - Company announcements, government actions, awards, sports, celebrity actions
+ *
+ * Full rules: https://baozi.bet/agents/parimutuel-rules
  */
 import axios from 'axios';
 import Parser from 'rss-parser';
@@ -21,11 +28,163 @@ export interface MarketProposal {
   closingTime: Date;
   source: string;
   sourceUrl: string;
-  confidence: number; // 0-1, how confident we are this is a good market
+  confidence: number;
+  resolutionSource?: string; // Approved resolution source
 }
 
 // =============================================================================
-// RSS NEWS DETECTION
+// v7.0 BANNED MARKET DETECTION
+// =============================================================================
+
+/** Patterns that indicate a BANNED price prediction market */
+const PRICE_PREDICTION_PATTERNS = [
+  /will\s+\w+\s+(?:be\s+)?(?:above|below|reach|exceed|hit|break|surpass|cross)\s+\$[\d,]+/i,
+  /(?:price|value)\s+(?:of\s+)?\w+\s+(?:above|below|over|under)/i,
+  /\$[\d,]+\s+(?:by|on|before)\s+/i,
+  /(?:bitcoin|btc|ethereum|eth|solana|sol|crypto)\s+(?:price|value)/i,
+  /(?:stock|share|equity)\s+(?:price|value)/i,
+  /market\s+cap\s+(?:above|below|reach)/i,
+];
+
+/** Patterns that indicate a BANNED measurement-period market */
+const MEASUREMENT_PERIOD_PATTERNS = [
+  /during\s+(?:this|next|the)\s+(?:week|month|quarter|year)/i,
+  /(?:weekly|monthly|quarterly|annual)\s+(?:average|total|volume)/i,
+  /(?:over|across|throughout)\s+(?:the\s+)?(?:period|timeframe|window)/i,
+  /what\s+will\s+\w+\s+(?:measure|read|show)\s+(?:at|on)/i,
+];
+
+/**
+ * v7.0 compliance check: Is this market allowed?
+ * Returns { allowed: true } or { allowed: false, reason: string }
+ */
+export function checkV7Compliance(question: string): { allowed: boolean; reason: string } {
+  const q = question.toLowerCase();
+
+  // Check for banned price prediction patterns
+  for (const pattern of PRICE_PREDICTION_PATTERNS) {
+    if (pattern.test(q)) {
+      return { allowed: false, reason: `BANNED: Price prediction market (v7.0 rule)` };
+    }
+  }
+
+  // Check for banned measurement-period patterns
+  for (const pattern of MEASUREMENT_PERIOD_PATTERNS) {
+    if (pattern.test(q)) {
+      return { allowed: false, reason: `BANNED: Measurement-period market (v7.0 rule)` };
+    }
+  }
+
+  // One-line test: can outcome be observed while betting is open?
+  // Price-related questions fail this by default (caught above)
+  // For remaining questions, check if they're genuinely event-based
+  const eventPatterns = [
+    /will\s+.+\s+(?:announce|launch|release|unveil|reveal|confirm|approve|reject|pass|sign|file|win|lose)/i,
+    /who\s+(?:will\s+)?win/i,
+    /will\s+.+\s+(?:happen|occur)\s+(?:by|before|on)/i,
+    /will\s+@?\w+\s+(?:tweet|post|say|do|make|create)/i,
+    /will\s+.+\s+(?:be\s+)?(?:approved|rejected|passed|signed|vetoed)/i,
+  ];
+
+  const isEventBased = eventPatterns.some(p => p.test(q));
+  if (!isEventBased) {
+    // Not clearly event-based, but also not clearly banned
+    // Allow with lower confidence, the MCP validator will catch edge cases
+    return { allowed: true, reason: 'Possibly event-based (not clearly banned)' };
+  }
+
+  return { allowed: true, reason: 'Event-based market (Type A) — v7.0 compliant' };
+}
+
+// =============================================================================
+// v7.0 TIMING RULES (Type A only)
+// =============================================================================
+
+export interface TimingClassification {
+  type: 'A';
+  eventTime?: Date;
+  valid: boolean;
+  reason: string;
+}
+
+/**
+ * Validate Type A timing: close_time must be <= event_time - 24h
+ *
+ * v7.0: Only Type A markets exist. Type B is banned.
+ */
+export function classifyAndValidateTiming(proposal: MarketProposal): TimingClassification {
+  const question = proposal.question.toLowerCase();
+  const closingMs = proposal.closingTime.getTime();
+  const buffer24h = 24 * 60 * 60 * 1000;
+
+  // Parse event date from question
+  const byDateMatch = question.match(/by\s+(?:end\s+of\s+)?(\w+\s+\d{4}|q[1-4]\s+\d{4}|\d{4}-\d{2}-\d{2})/i);
+  const onDateMatch = question.match(/(?:on|before)\s+(\d{4}-\d{2}-\d{2})/i);
+
+  let eventDate: Date | null = null;
+
+  if (byDateMatch) {
+    const dateStr = byDateMatch[1].toLowerCase();
+    if (dateStr.match(/q[1-4]\s+\d{4}/)) {
+      const [q, year] = dateStr.split(/\s+/);
+      const quarter = parseInt(q.replace('q', ''));
+      eventDate = new Date(`${year}-${String(quarter * 3).padStart(2, '0')}-28T23:59:59Z`);
+    } else if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
+      eventDate = new Date(dateStr + 'T23:59:59Z');
+    } else {
+      eventDate = new Date(dateStr + ' 28 23:59:59 UTC');
+    }
+  } else if (onDateMatch) {
+    eventDate = new Date(onDateMatch[1] + 'T23:59:59Z');
+  }
+
+  if (eventDate && !isNaN(eventDate.getTime())) {
+    const valid = closingMs <= eventDate.getTime() - buffer24h;
+    return {
+      type: 'A',
+      eventTime: eventDate,
+      valid,
+      reason: valid
+        ? `Type A: closes ${((eventDate.getTime() - closingMs) / buffer24h).toFixed(1)} days before event`
+        : `Type A VIOLATION: close_time must be <= event_time - 24h`,
+    };
+  }
+
+  // No explicit date found — use closing time with default buffer
+  return {
+    type: 'A',
+    eventTime: new Date(closingMs + buffer24h),
+    valid: true,
+    reason: 'Type A (inferred): no explicit event date, using closing time with default buffer',
+  };
+}
+
+/**
+ * Adjust proposal closing time to comply with Type A timing rules.
+ * Returns null if the market cannot be made compliant.
+ */
+export function enforceTimingRules(proposal: MarketProposal): MarketProposal | null {
+  const classification = classifyAndValidateTiming(proposal);
+
+  if (classification.valid) return proposal;
+
+  const buffer24h = 24 * 60 * 60 * 1000;
+
+  if (classification.eventTime) {
+    const adjustedClose = new Date(classification.eventTime.getTime() - buffer24h);
+    if (adjustedClose.getTime() <= Date.now()) {
+      console.warn(`  ⚠️ Cannot fix timing for "${proposal.question}" — adjusted close would be in the past`);
+      return null;
+    }
+    console.log(`  🔧 Adjusted closing time: ${proposal.closingTime.toISOString()} → ${adjustedClose.toISOString()}`);
+    return { ...proposal, closingTime: adjustedClose };
+  }
+
+  return null;
+}
+
+// =============================================================================
+// RSS NEWS DETECTION (v7.0: Event-based only)
 // =============================================================================
 
 interface RSSItem {
@@ -36,66 +195,76 @@ interface RSSItem {
   categories?: string[];
 }
 
-const CRYPTO_PATTERNS = [
-  { regex: /(\w+)\s+(?:hits|reaches|breaks|surpasses|crosses)\s+\$?([\d,]+)/i, type: 'price_milestone' },
-  { regex: /(\w+)\s+(?:ETF|etf)\s+(?:approved|rejected|filed|submitted)/i, type: 'etf' },
-  { regex: /(\w+)\s+(?:halving|halvening)/i, type: 'halving' },
-  { regex: /(\w+)\s+(?:launches?|announces?|unveils?|releases?)\s+(.+)/i, type: 'launch' },
-  { regex: /(?:SEC|CFTC|regulat)/i, type: 'regulation' },
-];
-
-const TECH_PATTERNS = [
-  { regex: /(GPT-\d|Claude\s+\d|Gemini\s+\d|Llama\s+\d)\s+(?:launch|release|announce)/i, type: 'ai_model' },
-  { regex: /(Apple|Google|Microsoft|Meta|Tesla|Nvidia)\s+(?:launch|release|announce|unveil)/i, type: 'tech_launch' },
-  { regex: /(?:IPO|acquisition|merger|buyout)\s+/i, type: 'corporate' },
-];
-
 function generateEventHash(title: string, source: string): string {
   const normalized = title.toLowerCase().replace(/[^a-z0-9]/g, '');
   return crypto.createHash('md5').update(`${source}:${normalized}`).digest('hex');
 }
 
-function generateMarketQuestion(title: string, pattern: { type: string }): string | null {
+/** v7.0 EVENT-BASED patterns only. No price predictions. */
+const EVENT_PATTERNS = [
+  // Tech/product launches
+  { regex: /(Apple|Google|Microsoft|Meta|Tesla|Nvidia|OpenAI|Anthropic)\s+(?:launches?|announces?|unveils?|releases?|reveals?)\s+(.+)/i, type: 'tech_launch' },
+  // AI model releases
+  { regex: /(GPT-\d|Claude\s+\d|Gemini\s+\d|Llama\s+\d)\s+(?:launch|release|announce)/i, type: 'ai_model' },
+  // Regulatory actions
+  { regex: /(?:SEC|CFTC|DOJ|FTC)\s+(?:approves?|rejects?|files?|charges?|investigates?)\s+/i, type: 'regulation' },
+  // ETF/approval decisions
+  { regex: /(\w+)\s+(?:ETF|etf)\s+(?:approved|rejected|filed|submitted|decision)/i, type: 'etf_decision' },
+  // Corporate actions
+  { regex: /(?:IPO|acquisition|merger|buyout)\s+(?:announced|confirmed|approved|completed)/i, type: 'corporate' },
+  // Awards/competitions
+  { regex: /(?:Oscar|Grammy|Emmy|BAFTA|Nobel|Pulitzer)\s+(?:winner|nomination|award)/i, type: 'award' },
+  // Government/policy
+  { regex: /(?:bill|legislation|executive\s+order|sanction)\s+(?:pass|sign|veto|approve|reject)/i, type: 'government' },
+  // Celebrity/social media actions
+  { regex: /@?\w+\s+(?:tweets?|posts?|announces?|confirms?)/i, type: 'social_action' },
+];
+
+function generateEventQuestion(title: string, pattern: { type: string }): string | null {
   const cleanTitle = title.replace(/\s+/g, ' ').trim();
+  const futureDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const dateStr = futureDate.toISOString().split('T')[0];
 
   switch (pattern.type) {
-    case 'price_milestone': {
-      const match = cleanTitle.match(/(\w+)\s+(?:hits|reaches|breaks|surpasses|crosses)\s+\$?([\d,]+)/i);
+    case 'tech_launch': {
+      const match = cleanTitle.match(/(Apple|Google|Microsoft|Meta|Tesla|Nvidia|OpenAI|Anthropic)\s+(?:launches?|announces?|unveils?|releases?|reveals?)\s+(.{5,50})/i);
       if (match) {
-        const coin = match[1];
-        const price = match[2].replace(/,/g, '');
-        // Create a "will it stay above" market
-        const targetDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        const dateStr = targetDate.toISOString().split('T')[0];
-        return `Will ${coin} be above $${price} on ${dateStr}?`;
+        return `Will ${match[1]} officially launch ${match[2].trim()} by ${dateStr}?`;
       }
       return null;
     }
-
-    case 'etf':
-      return `Will a ${cleanTitle.match(/(\w+)/)?.[1] || 'crypto'} ETF be approved by end of Q1 2026?`;
-
-    case 'launch':
-      return `Will ${cleanTitle.substring(0, 80)} succeed within 30 days?`;
-
-    case 'regulation':
-      return null; // Too complex for auto-generation
 
     case 'ai_model': {
       const match = cleanTitle.match(/(GPT-\d|Claude\s+\d|Gemini\s+\d|Llama\s+\d)/i);
       if (match) {
-        return `Will ${match[1]} be publicly available within 30 days?`;
+        return `Will ${match[1]} be publicly released by ${dateStr}?`;
       }
       return null;
     }
 
-    case 'tech_launch': {
-      const match = cleanTitle.match(/(Apple|Google|Microsoft|Meta|Tesla|Nvidia)\s+(?:launches?|releases?|announces?|unveils?)\s+(.{5,40})/i);
-      if (match) {
-        return `Will ${match[1]}'s ${match[2].trim()} launch by end of month?`;
-      }
+    case 'etf_decision':
+      return `Will the ${cleanTitle.match(/(\w+)/)?.[1] || 'crypto'} ETF receive a final SEC decision by ${dateStr}?`;
+
+    case 'regulation':
+      return null; // Too nuanced for auto-generation
+
+    case 'corporate': {
+      const snippet = cleanTitle.substring(0, 60).trim();
+      return `Will the "${snippet}" deal be completed by ${dateStr}?`;
+    }
+
+    case 'award': {
+      const match = cleanTitle.match(/(Oscar|Grammy|Emmy|BAFTA|Nobel|Pulitzer)/i);
+      if (match) return null; // Awards need specific nominee info
       return null;
     }
+
+    case 'government': {
+      const snippet = cleanTitle.substring(0, 60).trim();
+      return `Will "${snippet}" become law by ${dateStr}?`;
+    }
+
+    case 'social_action': return null; // Too noisy for auto-generation
 
     default:
       return null;
@@ -114,35 +283,39 @@ export async function scanRSSFeeds(): Promise<MarketProposal[]> {
         const title = item.title || '';
         const eventHash = generateEventHash(title, feed.category);
 
-        // Skip if already seen
         if (isEventSeen(eventHash)) continue;
 
-        // Check against patterns
-        const patterns = feed.category === 'Crypto' ? CRYPTO_PATTERNS : TECH_PATTERNS;
-        for (const pattern of patterns) {
+        for (const pattern of EVENT_PATTERNS) {
           if (pattern.regex.test(title)) {
-            const question = generateMarketQuestion(title, pattern);
+            const question = generateEventQuestion(title, pattern);
             if (question && question.length >= 10 && question.length <= 200) {
-              // Check for duplicates
+              // v7.0 compliance check
+              const compliance = checkV7Compliance(question);
+              if (!compliance.allowed) {
+                console.log(`  🚫 BLOCKED: "${question}" — ${compliance.reason}`);
+                recordSeenEvent(eventHash, title, feed.category);
+                break;
+              }
+
               if (!isDuplicate(question)) {
-                const closingTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Default 7 days
+                const closingTime = new Date(Date.now() + 12 * 24 * 60 * 60 * 1000); // 12 days (14 day event - 2 day buffer)
                 proposals.push({
                   question,
                   category: feed.category,
                   closingTime,
                   source: `RSS:${feed.category}`,
                   sourceUrl: item.link || '',
-                  confidence: 0.7,
+                  confidence: 0.75,
+                  resolutionSource: 'Official announcement / news source',
                 });
                 recordSeenEvent(eventHash, title, feed.category);
-                console.log(`  ✅ Proposal: "${question}"`);
+                console.log(`  ✅ Proposal: "${question}" (${compliance.reason})`);
               }
             }
-            break; // Only match first pattern per article
+            break;
           }
         }
 
-        // Record event as seen even if no market created
         recordSeenEvent(eventHash, title, feed.category);
       }
     } catch (err: any) {
@@ -154,123 +327,64 @@ export async function scanRSSFeeds(): Promise<MarketProposal[]> {
 }
 
 // =============================================================================
-// CRYPTO PRICE MILESTONE DETECTION
-// =============================================================================
-
-interface CoinPrice {
-  id: string;
-  current_price: number;
-  price_change_percentage_24h: number;
-  name: string;
-  symbol: string;
-}
-
-export async function scanCryptoPriceMilestones(): Promise<MarketProposal[]> {
-  const proposals: MarketProposal[] = [];
-
-  try {
-    console.log('📊 Checking crypto price milestones...');
-    const response = await axios.get(`${config.coingeckoApiUrl}/coins/markets`, {
-      params: {
-        vs_currency: 'usd',
-        ids: config.trackedCoins.join(','),
-        order: 'market_cap_desc',
-      },
-      timeout: 10000,
-    });
-
-    const coins: CoinPrice[] = response.data;
-
-    for (const coin of coins) {
-      const milestones = config.priceMilestones[coin.id] || [];
-
-      for (const milestone of milestones) {
-        // Check if price is within 10% of a milestone
-        const pctToMilestone = Math.abs(coin.current_price - milestone) / milestone;
-
-        if (pctToMilestone < 0.10) {
-          const direction = coin.current_price < milestone ? 'above' : 'below';
-          const targetDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-          const dateStr = targetDate.toISOString().split('T')[0];
-          const question = `Will ${coin.name} be ${direction} $${milestone.toLocaleString()} on ${dateStr}?`;
-
-          const eventHash = generateEventHash(`${coin.id}-${milestone}-${dateStr}`, 'CoinGecko');
-
-          if (!isEventSeen(eventHash) && !isDuplicate(question)) {
-            proposals.push({
-              question,
-              category: 'Crypto',
-              closingTime: targetDate,
-              source: 'CoinGecko',
-              sourceUrl: `https://www.coingecko.com/en/coins/${coin.id}`,
-              confidence: 0.85, // Price milestones are high-quality markets
-            });
-            recordSeenEvent(eventHash, question, 'CoinGecko');
-            console.log(`  ✅ Price proposal: "${question}" (${coin.symbol} at $${coin.current_price.toFixed(2)})`);
-          }
-        }
-      }
-    }
-  } catch (err: any) {
-    console.error(`  ❌ CoinGecko error: ${err.message}`);
-  }
-
-  return proposals;
-}
-
-// =============================================================================
-// CURATED MARKET GENERATION (Guaranteed supply)
+// CURATED EVENT MARKETS (v7.0 compliant — no price predictions)
 // =============================================================================
 
 /**
- * Generate time-based markets that are always valid.
- * These are "safe" markets that don't depend on news detection.
+ * Generate curated event-based markets.
+ * v7.0: ONLY unknowable-outcome events. NO price predictions.
  */
 export function generateCuratedMarkets(): MarketProposal[] {
   const proposals: MarketProposal[] = [];
   const now = new Date();
 
-  // Daily crypto snapshot markets
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const twoWeeks = new Date(now);
+  twoWeeks.setDate(twoWeeks.getDate() + 14);
 
-  const weekFromNow = new Date(now);
-  weekFromNow.setDate(weekFromNow.getDate() + 7);
-  const weekStr = weekFromNow.toISOString().split('T')[0];
+  const closeTime = new Date(now);
+  closeTime.setDate(closeTime.getDate() + 12); // 2 days before event
 
-  // SOL price markets (always relevant on a Solana platform)
-  const solMarkets = [
+  // Event-based markets with unknowable outcomes
+  const curatedEvents = [
     {
-      question: `Will SOL close above $170 on ${weekStr}?`,
-      closingTime: weekFromNow,
-      confidence: 0.9,
+      question: `Will OpenAI announce a new model by ${twoWeeks.toISOString().split('T')[0]}?`,
+      category: 'Tech',
+      confidence: 0.7,
+      resolutionSource: 'OpenAI official blog / Twitter',
     },
     {
-      question: `Will BTC be above $100K on ${weekStr}?`,
-      closingTime: weekFromNow,
-      confidence: 0.9,
+      question: `Will the SEC announce any new crypto enforcement action by ${twoWeeks.toISOString().split('T')[0]}?`,
+      category: 'Regulation',
+      confidence: 0.7,
+      resolutionSource: 'SEC.gov press releases',
     },
     {
-      question: `Will ETH be above $2800 on ${weekStr}?`,
-      closingTime: weekFromNow,
-      confidence: 0.85,
+      question: `Will Elon Musk tweet about Dogecoin by ${twoWeeks.toISOString().split('T')[0]}?`,
+      category: 'Social',
+      confidence: 0.65,
+      resolutionSource: 'Twitter / X (@elonmusk)',
     },
   ];
 
-  for (const m of solMarkets) {
-    const eventHash = generateEventHash(m.question, 'Curated');
-    if (!isEventSeen(eventHash) && !isDuplicate(m.question)) {
+  for (const event of curatedEvents) {
+    const compliance = checkV7Compliance(event.question);
+    if (!compliance.allowed) {
+      console.log(`  🚫 Curated BLOCKED: "${event.question}" — ${compliance.reason}`);
+      continue;
+    }
+
+    const eventHash = generateEventHash(event.question, 'Curated');
+    if (!isEventSeen(eventHash) && !isDuplicate(event.question)) {
       proposals.push({
-        question: m.question,
-        category: 'Crypto',
-        closingTime: m.closingTime,
+        question: event.question,
+        category: event.category,
+        closingTime: closeTime,
         source: 'Curated',
         sourceUrl: '',
-        confidence: m.confidence,
+        confidence: event.confidence,
+        resolutionSource: event.resolutionSource,
       });
-      recordSeenEvent(eventHash, m.question, 'Curated');
+      recordSeenEvent(eventHash, event.question, 'Curated');
     }
   }
 
@@ -278,158 +392,31 @@ export function generateCuratedMarkets(): MarketProposal[] {
 }
 
 // =============================================================================
-// MAIN SCAN FUNCTION
+// MAIN SCAN (v7.0: no crypto price scanning)
 // =============================================================================
 
 export async function detectMarketOpportunities(): Promise<MarketProposal[]> {
   const allProposals: MarketProposal[] = [];
 
-  // Scan all sources
-  const [rssProposals, priceProposals] = await Promise.allSettled([
-    scanRSSFeeds(),
-    scanCryptoPriceMilestones(),
-  ]);
-
-  if (rssProposals.status === 'fulfilled') allProposals.push(...rssProposals.value);
-  if (priceProposals.status === 'fulfilled') allProposals.push(...priceProposals.value);
+  // v7.0: Only RSS event detection. NO crypto price milestones.
+  const rssProposals = await scanRSSFeeds();
+  allProposals.push(...rssProposals);
 
   // Add curated markets if we don't have enough
   if (allProposals.length < 3) {
     allProposals.push(...generateCuratedMarkets());
   }
 
-  // Sort by confidence descending
-  allProposals.sort((a, b) => b.confidence - a.confidence);
-
-  console.log(`\n📋 Total proposals this scan: ${allProposals.length}`);
-  return allProposals;
-}
-
-// =============================================================================
-// PARI-MUTUEL V6.3 TIMING RULES
-// =============================================================================
-
-export interface TimingClassification {
-  type: 'A' | 'B';
-  eventTime?: Date;       // Type A: when the event occurs
-  measurementStart?: Date; // Type B: when measurement period begins
-  valid: boolean;
-  reason: string;
-}
-
-/**
- * Classify and validate market timing per pari-mutuel v6.3 rules.
- * 
- * Type A (event-based): "Will X happen by Y?"
- *   - close_time must be <= event_time - 24h
- *   
- * Type B (measurement-period): "Will X measure Y at time Z?"
- *   - close_time must be < measurement_start
- *   
- * Golden Rule: Bettors must NEVER have information advantage while betting is open.
- */
-export function classifyAndValidateTiming(proposal: MarketProposal): TimingClassification {
-  const question = proposal.question.toLowerCase();
-  const closingMs = proposal.closingTime.getTime();
-  const buffer24h = 24 * 60 * 60 * 1000;
-
-  // Type B detection: "Will X be above/below Y on DATE?"
-  // These are measurement-period markets - closing time should be before measurement
-  const dateMatch = question.match(/on\s+(\d{4}-\d{2}-\d{2})/);
-  const priceMatch = question.match(/(?:above|below|reach|exceed)\s+\$?[\d,]+/);
-  
-  if (dateMatch && priceMatch) {
-    // This is a Type B market (price measurement on a specific date)
-    const measurementDate = new Date(dateMatch[1] + 'T00:00:00Z');
-    const valid = closingMs < measurementDate.getTime();
-    
-    return {
-      type: 'B',
-      measurementStart: measurementDate,
-      valid,
-      reason: valid
-        ? `Type B: closes ${((measurementDate.getTime() - closingMs) / (60*60*1000)).toFixed(1)}h before measurement`
-        : `Type B VIOLATION: close_time must be < measurement_start (${measurementDate.toISOString()})`,
-    };
-  }
-
-  // Type A detection: "Will X happen by/before DATE?" or event-based
-  const byDateMatch = question.match(/by\s+(?:end\s+of\s+)?(\w+\s+\d{4}|q[1-4]\s+\d{4}|\d{4}-\d{2}-\d{2})/i);
-  
-  if (byDateMatch) {
-    // Parse the event date
-    let eventDate: Date;
-    const dateStr = byDateMatch[1].toLowerCase();
-    
-    if (dateStr.match(/q[1-4]\s+\d{4}/)) {
-      const [q, year] = dateStr.split(/\s+/);
-      const quarter = parseInt(q.replace('q', ''));
-      eventDate = new Date(`${year}-${String(quarter * 3).padStart(2, '0')}-28T23:59:59Z`);
-    } else if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
-      eventDate = new Date(dateStr + 'T23:59:59Z');
-    } else {
-      // "March 2026" format
-      eventDate = new Date(dateStr + ' 28 23:59:59 UTC');
+  // Final v7.0 compliance filter (belt and suspenders)
+  const compliant = allProposals.filter(p => {
+    const check = checkV7Compliance(p.question);
+    if (!check.allowed) {
+      console.log(`  🚫 Final filter blocked: "${p.question}" — ${check.reason}`);
     }
+    return check.allowed;
+  });
 
-    if (!isNaN(eventDate.getTime())) {
-      const valid = closingMs <= eventDate.getTime() - buffer24h;
-      return {
-        type: 'A',
-        eventTime: eventDate,
-        valid,
-        reason: valid
-          ? `Type A: closes ${((eventDate.getTime() - closingMs) / buffer24h).toFixed(1)} days before event`
-          : `Type A VIOLATION: close_time must be <= event_time - 24h`,
-      };
-    }
-  }
-
-  // Default: treat as Type A with closing time as event time proxy
-  // Apply conservative 24h buffer from any mentioned future date
-  const futureDate = new Date(closingMs + buffer24h);
-  return {
-    type: 'A',
-    eventTime: futureDate,
-    valid: true, // Conservative default: if no specific date, assume closing time is already buffered
-    reason: 'Type A (inferred): no explicit event date, using closing time with default buffer',
-  };
-}
-
-/**
- * Adjust proposal closing time to comply with timing rules.
- * Returns null if the market cannot be made compliant.
- */
-export function enforceTimingRules(proposal: MarketProposal): MarketProposal | null {
-  const classification = classifyAndValidateTiming(proposal);
-  
-  if (classification.valid) {
-    return proposal; // Already compliant
-  }
-
-  const buffer24h = 24 * 60 * 60 * 1000;
-
-  if (classification.type === 'A' && classification.eventTime) {
-    // Adjust closing time to event_time - 24h
-    const adjustedClose = new Date(classification.eventTime.getTime() - buffer24h);
-    if (adjustedClose.getTime() <= Date.now()) {
-      console.warn(`  ⚠️ Cannot fix timing for "${proposal.question}" — adjusted close would be in the past`);
-      return null;
-    }
-    console.log(`  🔧 Adjusted closing time: ${proposal.closingTime.toISOString()} → ${adjustedClose.toISOString()}`);
-    return { ...proposal, closingTime: adjustedClose };
-  }
-
-  if (classification.type === 'B' && classification.measurementStart) {
-    // Adjust closing time to measurement_start - 1h
-    const adjustedClose = new Date(classification.measurementStart.getTime() - 60 * 60 * 1000);
-    if (adjustedClose.getTime() <= Date.now()) {
-      console.warn(`  ⚠️ Cannot fix timing for "${proposal.question}" — adjusted close would be in the past`);
-      return null;
-    }
-    console.log(`  🔧 Adjusted closing time: ${proposal.closingTime.toISOString()} → ${adjustedClose.toISOString()}`);
-    return { ...proposal, closingTime: adjustedClose };
-  }
-
-  return null; // Can't fix
+  compliant.sort((a, b) => b.confidence - a.confidence);
+  console.log(`\n📋 Total v7.0-compliant proposals: ${compliant.length} (from ${allProposals.length} raw)`);
+  return compliant;
 }

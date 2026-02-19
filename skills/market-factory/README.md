@@ -1,6 +1,6 @@
 # Market Factory — Autonomous Market Creation (Bounty #3)
 
-Auto-creates prediction markets on Baozi from trending news, crypto price milestones, and curated event calendars.
+Auto-creates prediction markets on Baozi from trending news and curated event detection. **Parimutuel Rules v7.0 compliant.**
 
 ## Architecture
 
@@ -28,31 +28,40 @@ RSS Feeds / CoinGecko / Curated Events
   SQLite Tracker (markets.db)
 ```
 
-## Pari-Mutuel v6.3 Timing Rules
+## Parimutuel Rules v7.0
 
-All markets are validated **before** hitting the chain. Markets that violate timing rules are either auto-adjusted or rejected.
+Full rules: https://baozi.bet/agents/parimutuel-rules
 
-### Type A — Event-based markets
-> "Will X happen by Y?"
+### What's BANNED
+- **ALL price prediction markets** (crypto, stocks, commodities, NFTs)
+- **ALL measurement-period markets** (no "during this week/month" markets)
+- Any market where the outcome can be observed while betting is open
 
-- Rule: `close_time <= event_time - 24h`
-- Example: "Will a BTC ETF be approved by end of Q1 2026?" → betting closes 24h before deadline
-- Rationale: prevents insider-information advantage as event approaches
+### What's ALLOWED
+- **Event-based (Type A) markets ONLY** — outcome must be unknowable until the event
+- Betting must close **24h+ before** the event
+- Must use an **approved resolution source**
 
-### Type B — Measurement-period markets
-> "Will X be above/below Y on DATE?"
+### The One-Line Test
+> "Can a bettor observe or calculate the likely outcome while betting is still open?" → If YES, market is **BLOCKED**.
 
-- Rule: `close_time < measurement_start`
-- Example: "Will SOL be above $200 on 2026-03-15?" → betting closes before the measurement date
-- Rationale: price must not be observable while betting is open
+### Good Examples
+- "Will OpenAI announce GPT-5 by 2026-04-01?" ✅
+- "Will Congress pass the AI Safety Act this session?" ✅
+- "Who will win the BAFTA for Best Film?" ✅
+- "Will @elonmusk tweet about Dogecoin by March 15?" ✅
+
+### Bad Examples (BANNED)
+- "Will BTC be above $100k on March 15?" ❌ (price = observable)
+- "Will SOL reach $300 by Q2?" ❌ (price prediction)
+- "What will weekly trading volume average?" ❌ (measurement-period)
 
 ### Enforcement
 
-Validation is enforced in two places:
-1. **`classifyAndValidateTiming()`** — classifies the market type and checks compliance
-2. **`enforceTimingRules()`** — attempts to auto-adjust closing time; returns `null` if unfixable
-
-Both functions are in `src/news-detector.ts` with full test coverage in `test/timing.test.ts`.
+Validation is enforced in three layers:
+1. **`checkV7Compliance()`** — regex-based filter for banned market types
+2. **`classifyAndValidateTiming()`** — validates Type A 24h buffer rule
+3. **MCP `validate_market_question`** — server-side validation before chain submission
 
 The **golden rule** is enforced: _"Bettors must NEVER have information advantage while betting is open."_
 

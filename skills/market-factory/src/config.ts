@@ -41,14 +41,7 @@ export const config = {
     { url: 'https://techcrunch.com/feed/', category: 'Tech' },
   ],
 
-  // CoinGecko
-  coingeckoApiUrl: 'https://api.coingecko.com/api/v3',
-  trackedCoins: ['solana', 'bitcoin', 'ethereum'],
-  priceMilestones: {
-    solana: [200, 250, 300, 150],
-    bitcoin: [100000, 110000, 120000, 90000],
-    ethereum: [4000, 5000, 3500],
-  } as Record<string, number[]>,
+  // v7.0: CoinGecko price scanning REMOVED — price prediction markets are BANNED
 
   // Database
   dbPath: process.env.DB_PATH || '/home/ubuntu/.openclaw/workspace/projects/revenue-engine/bounties/market-factory/data/markets.db',
