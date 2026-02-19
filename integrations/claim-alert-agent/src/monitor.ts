@@ -7,16 +7,20 @@ import { Notifier } from './notifier';
 import { StateManager } from './state';
 import config from './config';
 
+import { McpClient } from './mcp';
+
 export class Monitor {
   private client: BaoziClient;
   private notifier: Notifier;
   private state: StateManager;
+  private mcp: McpClient;
   private isRunning: boolean;
 
-  constructor(client?: BaoziClient, notifier?: Notifier, state?: StateManager) {
+  constructor(client?: BaoziClient, notifier?: Notifier, state?: StateManager, mcp?: McpClient) {
     this.client = client || new BaoziClient(config.solanaRpcUrl);
     this.notifier = notifier || new Notifier(config.alertWebhookUrl);
     this.state = state || new StateManager();
+    this.mcp = mcp || new McpClient();
     this.isRunning = false;
   }
 
@@ -24,6 +28,14 @@ export class Monitor {
     if (this.isRunning) return;
     this.isRunning = true;
     console.log(`[Monitor] Starting with ${config.walletAddresses.length} wallets, poll every ${config.pollIntervalMinutes}m`);
+    
+    // Start MCP client
+    try {
+      await this.mcp.start();
+    } catch (err) {
+      console.warn('[Monitor] Failed to start MCP client, transaction building will be disabled:', err);
+    }
+
     await this.poll();
     cron.schedule(`*/${config.pollIntervalMinutes} * * * *`, () => this.poll());
   }
@@ -54,9 +66,29 @@ export class Monitor {
     if (claimSummary.totalClaimableSol > config.winningsThreshold) {
       const lastAlerted = this.state.getLastAlerted(wallet, 'claimable');
       if (now - lastAlerted > 60 * 60 * 1000) {
-        const lines = claimSummary.claimablePositions
-          .map(p => `• "${p.marketQuestion}" — ${p.estimatedPayoutSol} SOL (${p.claimType})`)
-          .join('\n');
+        
+        // Build transactions via MCP
+        const positionLines = await Promise.all(claimSummary.claimablePositions.map(async p => {
+          let txInfo = '';
+          try {
+            if (this.mcp) {
+              const res = await this.mcp.callTool('build_claim_winnings_transaction', {
+                positionPda: p.positionPda,
+                marketPda: p.marketPda
+              });
+              // Expecting result.content[0].text to contain the base64 transaction
+              const tx = res?.content?.[0]?.text;
+              if (tx) {
+                txInfo = `\n  Tx: \`${tx}\``; 
+              }
+            }
+          } catch (err) {
+            console.error(`[Monitor] MCP error for ${p.positionPda}:`, err);
+          }
+          return `• "${p.marketQuestion}" — ${p.estimatedPayoutSol} SOL (${p.claimType})${txInfo}`;
+        }));
+
+        const lines = positionLines.join('\n\n');
 
         await this.notifier.send({
           type: 'alert',
