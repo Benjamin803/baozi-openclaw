@@ -304,3 +304,132 @@ export async function detectMarketOpportunities(): Promise<MarketProposal[]> {
   console.log(`\n📋 Total proposals this scan: ${allProposals.length}`);
   return allProposals;
 }
+
+// =============================================================================
+// PARI-MUTUEL V6.3 TIMING RULES
+// =============================================================================
+
+export interface TimingClassification {
+  type: 'A' | 'B';
+  eventTime?: Date;       // Type A: when the event occurs
+  measurementStart?: Date; // Type B: when measurement period begins
+  valid: boolean;
+  reason: string;
+}
+
+/**
+ * Classify and validate market timing per pari-mutuel v6.3 rules.
+ * 
+ * Type A (event-based): "Will X happen by Y?"
+ *   - close_time must be <= event_time - 24h
+ *   
+ * Type B (measurement-period): "Will X measure Y at time Z?"
+ *   - close_time must be < measurement_start
+ *   
+ * Golden Rule: Bettors must NEVER have information advantage while betting is open.
+ */
+export function classifyAndValidateTiming(proposal: MarketProposal): TimingClassification {
+  const question = proposal.question.toLowerCase();
+  const closingMs = proposal.closingTime.getTime();
+  const buffer24h = 24 * 60 * 60 * 1000;
+
+  // Type B detection: "Will X be above/below Y on DATE?"
+  // These are measurement-period markets - closing time should be before measurement
+  const dateMatch = question.match(/on\s+(\d{4}-\d{2}-\d{2})/);
+  const priceMatch = question.match(/(?:above|below|reach|exceed)\s+\$?[\d,]+/);
+  
+  if (dateMatch && priceMatch) {
+    // This is a Type B market (price measurement on a specific date)
+    const measurementDate = new Date(dateMatch[1] + 'T00:00:00Z');
+    const valid = closingMs < measurementDate.getTime();
+    
+    return {
+      type: 'B',
+      measurementStart: measurementDate,
+      valid,
+      reason: valid
+        ? `Type B: closes ${((measurementDate.getTime() - closingMs) / (60*60*1000)).toFixed(1)}h before measurement`
+        : `Type B VIOLATION: close_time must be < measurement_start (${measurementDate.toISOString()})`,
+    };
+  }
+
+  // Type A detection: "Will X happen by/before DATE?" or event-based
+  const byDateMatch = question.match(/by\s+(?:end\s+of\s+)?(\w+\s+\d{4}|q[1-4]\s+\d{4}|\d{4}-\d{2}-\d{2})/i);
+  
+  if (byDateMatch) {
+    // Parse the event date
+    let eventDate: Date;
+    const dateStr = byDateMatch[1].toLowerCase();
+    
+    if (dateStr.match(/q[1-4]\s+\d{4}/)) {
+      const [q, year] = dateStr.split(/\s+/);
+      const quarter = parseInt(q.replace('q', ''));
+      eventDate = new Date(`${year}-${String(quarter * 3).padStart(2, '0')}-28T23:59:59Z`);
+    } else if (dateStr.match(/\d{4}-\d{2}-\d{2}/)) {
+      eventDate = new Date(dateStr + 'T23:59:59Z');
+    } else {
+      // "March 2026" format
+      eventDate = new Date(dateStr + ' 28 23:59:59 UTC');
+    }
+
+    if (!isNaN(eventDate.getTime())) {
+      const valid = closingMs <= eventDate.getTime() - buffer24h;
+      return {
+        type: 'A',
+        eventTime: eventDate,
+        valid,
+        reason: valid
+          ? `Type A: closes ${((eventDate.getTime() - closingMs) / buffer24h).toFixed(1)} days before event`
+          : `Type A VIOLATION: close_time must be <= event_time - 24h`,
+      };
+    }
+  }
+
+  // Default: treat as Type A with closing time as event time proxy
+  // Apply conservative 24h buffer from any mentioned future date
+  const futureDate = new Date(closingMs + buffer24h);
+  return {
+    type: 'A',
+    eventTime: futureDate,
+    valid: true, // Conservative default: if no specific date, assume closing time is already buffered
+    reason: 'Type A (inferred): no explicit event date, using closing time with default buffer',
+  };
+}
+
+/**
+ * Adjust proposal closing time to comply with timing rules.
+ * Returns null if the market cannot be made compliant.
+ */
+export function enforceTimingRules(proposal: MarketProposal): MarketProposal | null {
+  const classification = classifyAndValidateTiming(proposal);
+  
+  if (classification.valid) {
+    return proposal; // Already compliant
+  }
+
+  const buffer24h = 24 * 60 * 60 * 1000;
+
+  if (classification.type === 'A' && classification.eventTime) {
+    // Adjust closing time to event_time - 24h
+    const adjustedClose = new Date(classification.eventTime.getTime() - buffer24h);
+    if (adjustedClose.getTime() <= Date.now()) {
+      console.warn(`  ⚠️ Cannot fix timing for "${proposal.question}" — adjusted close would be in the past`);
+      return null;
+    }
+    console.log(`  🔧 Adjusted closing time: ${proposal.closingTime.toISOString()} → ${adjustedClose.toISOString()}`);
+    return { ...proposal, closingTime: adjustedClose };
+  }
+
+  if (classification.type === 'B' && classification.measurementStart) {
+    // Adjust closing time to measurement_start - 1h
+    const adjustedClose = new Date(classification.measurementStart.getTime() - 60 * 60 * 1000);
+    if (adjustedClose.getTime() <= Date.now()) {
+      console.warn(`  ⚠️ Cannot fix timing for "${proposal.question}" — adjusted close would be in the past`);
+      return null;
+    }
+    console.log(`  🔧 Adjusted closing time: ${proposal.closingTime.toISOString()} → ${adjustedClose.toISOString()}`);
+    return { ...proposal, closingTime: adjustedClose };
+  }
+
+  return null; // Can't fix
+}
