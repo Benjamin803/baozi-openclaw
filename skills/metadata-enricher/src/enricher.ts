@@ -1,237 +1,276 @@
-import { Market } from './baozi-api';
+import { config } from './config';
 
-// Category detection keywords
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  crypto: ['btc', 'bitcoin', 'eth', 'ethereum', 'sol', 'solana', 'crypto', 'token', 'defi', 'nft', 'blockchain', 'coinbase', 'binance', 'chain'],
-  sports: ['nba', 'nfl', 'mlb', 'nhl', 'ucl', 'premier league', 'world cup', 'super bowl', 'championship', 'playoff', 'match', 'game', 'win', 'score', 'olympics', 'tennis', 'golf', 'race'],
-  politics: ['president', 'election', 'congress', 'senate', 'vote', 'democrat', 'republican', 'governor', 'political', 'policy', 'legislation', 'trump', 'biden'],
-  entertainment: ['oscar', 'grammy', 'emmy', 'bafta', 'movie', 'film', 'album', 'song', 'artist', 'award', 'netflix', 'box office', 'release', 'streaming'],
-  technology: ['ai', 'openai', 'google', 'apple', 'microsoft', 'launch', 'product', 'release', 'iphone', 'android', 'software', 'model', 'gpt', 'claude'],
-  finance: ['stock', 'market', 'fed', 'rate', 'inflation', 'gdp', 'ipo', 'nasdaq', 'dow', 's&p', 'bond', 'treasury', 'cboe'],
-  weather: ['weather', 'hurricane', 'temperature', 'snow', 'rain', 'storm', 'climate'],
-};
+/**
+ * LLM-powered market metadata enricher.
+ * Uses OpenAI for AI classification, quality scoring, and timing validation.
+ */
 
 export interface MarketMetadata {
+  marketPda: string;
+  question: string;
   category: string;
   tags: string[];
-  description: string;
   qualityScore: number;
-  qualityReasons: string[];
-  timingAnalysis: string;
-  issues: string[];
+  qualityFlags: string[];
+  timingType: 'A' | 'B' | 'unknown';
+  timingValid: boolean;
+  timingNotes: string;
+  enrichedAt: string;
 }
 
-export class Enricher {
-  /**
-   * Analyze a market and generate metadata suggestions.
-   */
-  analyzeMarket(market: Market): MarketMetadata {
-    const question = market.question.toLowerCase();
-    
-    // Detect category
-    const category = this.detectCategory(question);
-    
-    // Generate tags
-    const tags = this.generateTags(question, category);
-    
-    // Generate description
-    const description = this.generateDescription(market);
-    
-    // Timing analysis
-    const timingAnalysis = this.analyzeClosingTime(market);
-    
-    // Quality scoring
-    const { score, reasons, issues } = this.scoreQuality(market, category, timingAnalysis);
+interface LLMClassification {
+  category: string;
+  tags: string[];
+  timingType: 'A' | 'B' | 'unknown';
+  eventTime?: string;
+  measurementStart?: string;
+  dataSource?: string;
+  isSubjective: boolean;
+  reasoning: string;
+}
 
+async function classifyWithLLM(question: string, closingTime: string): Promise<LLMClassification | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn('No OPENAI_API_KEY - using fallback classification');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a prediction market classifier for Baozi. Analyze market questions and return JSON with:
+- category: one of [crypto, sports, politics, tech, entertainment, science, economics, other]
+- tags: array of 2-5 relevant tags
+- timingType: "A" for event-based (will X happen by Y date?), "B" for measurement-period (what will X measure at Y time?), "unknown" if unclear
+- eventTime: ISO date string of when the event would occur (for Type A) or null
+- measurementStart: ISO date string of measurement period start (for Type B) or null
+- dataSource: what data source could verify this (e.g., "CoinGecko", "ESPN", "SEC filings") or null
+- isSubjective: true if the outcome can't be objectively verified
+- reasoning: brief explanation of classification
+
+Pari-mutuel timing rules:
+- Type A (event-based): close_time must be <= event_time - 24h
+- Type B (measurement-period): close_time must be < measurement_start
+- Golden Rule: Bettors must NEVER have information advantage while betting is open`,
+          },
+          {
+            role: 'user',
+            content: `Classify this market:\nQuestion: "${question}"\nClosing time: ${closingTime}\n\nReturn ONLY valid JSON.`,
+          },
+        ],
+        max_tokens: 300,
+        temperature: 0.3,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    const data = await response.json() as any;
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    return JSON.parse(content) as LLMClassification;
+  } catch (err: any) {
+    console.error('LLM classification failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Validate pari-mutuel v6.3 timing rules.
+ */
+function validateTiming(
+  closingTime: string,
+  timingType: 'A' | 'B' | 'unknown',
+  eventTime?: string,
+  measurementStart?: string
+): { valid: boolean; notes: string } {
+  const closeMs = new Date(closingTime).getTime();
+  const bufferMs = 24 * 60 * 60 * 1000; // 24 hours
+
+  if (timingType === 'A' && eventTime) {
+    const eventMs = new Date(eventTime).getTime();
+    if (isNaN(eventMs)) return { valid: false, notes: 'Invalid event time' };
+
+    const isValid = closeMs <= eventMs - bufferMs;
     return {
-      category,
-      tags,
-      description,
-      qualityScore: score,
-      qualityReasons: reasons,
-      timingAnalysis,
-      issues,
+      valid: isValid,
+      notes: isValid
+        ? `Type A valid: closes ${((eventMs - closeMs) / bufferMs).toFixed(1)} days before event`
+        : `Type A VIOLATION: close_time must be <= event_time - 24h. Gap: ${((eventMs - closeMs) / (60 * 60 * 1000)).toFixed(1)}h`,
     };
   }
 
-  private detectCategory(question: string): string {
-    let bestCategory = 'general';
-    let bestScore = 0;
+  if (timingType === 'B' && measurementStart) {
+    const measMs = new Date(measurementStart).getTime();
+    if (isNaN(measMs)) return { valid: false, notes: 'Invalid measurement start time' };
 
-    for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-      let score = 0;
-      for (const kw of keywords) {
-        if (question.includes(kw)) score++;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestCategory = cat;
-      }
-    }
-
-    return bestCategory;
+    const isValid = closeMs < measMs;
+    return {
+      valid: isValid,
+      notes: isValid
+        ? `Type B valid: closes ${((measMs - closeMs) / (60 * 60 * 1000)).toFixed(1)}h before measurement`
+        : `Type B VIOLATION: close_time must be < measurement_start`,
+    };
   }
 
-  private generateTags(question: string, category: string): string[] {
-    const tags = [category];
-    
-    // Extract proper nouns and key terms (simple heuristic)
-    const words = question.split(/\s+/);
-    for (const word of words) {
-      const clean = word.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-      if (clean.length > 3 && !['will', 'the', 'that', 'this', 'have', 'been', 'with', 'from', 'before', 'after', 'above', 'below', 'exceed', 'million', 'billion'].includes(clean)) {
-        // Check if it matches any category keyword
-        for (const keywords of Object.values(CATEGORY_KEYWORDS)) {
-          if (keywords.includes(clean) && !tags.includes(clean)) {
-            tags.push(clean);
-          }
-        }
-      }
-    }
-
-    // Add 'prediction' and 'baozi' as default tags
-    tags.push('prediction');
-    
-    return tags.slice(0, 6); // Max 6 tags
-  }
-
-  private generateDescription(market: Market): string {
-    const closingDate = new Date(market.closingTime).toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-
-    return `Prediction market on whether "${market.question}" — resolves by ${closingDate}. Current consensus: ${market.yesPercent > market.noPercent ? `Yes (${market.yesPercent}%)` : `No (${market.noPercent}%)`}. Pool: ${market.totalPoolSol.toFixed(2)} SOL.`;
-  }
-
-  private analyzeClosingTime(market: Market): string {
-    const now = Date.now();
-    const closingTime = new Date(market.closingTime).getTime();
-    const hoursUntilClose = (closingTime - now) / (1000 * 60 * 60);
-    const daysUntilClose = hoursUntilClose / 24;
-
-    if (closingTime < now) {
-      return '⚠️ Market already past closing time';
-    } else if (hoursUntilClose < 1) {
-      return '⚠️ Closing within 1 hour — very limited time for betting';
-    } else if (hoursUntilClose < 24) {
-      return `⏰ Closing in ${hoursUntilClose.toFixed(1)}h — last-day window`;
-    } else if (daysUntilClose < 7) {
-      return `✅ Closing in ${daysUntilClose.toFixed(1)} days — reasonable window`;
-    } else if (daysUntilClose > 90) {
-      return `📅 Closing in ${daysUntilClose.toFixed(0)} days — long-dated market, may see low early activity`;
-    } else {
-      return `✅ Closing in ${daysUntilClose.toFixed(0)} days — good timing`;
-    }
-  }
-
-  private scoreQuality(market: Market, category: string, timingAnalysis: string): { score: number; reasons: string[]; issues: string[] } {
-    let score = 3; // Base score
-    const reasons: string[] = [];
-    const issues: string[] = [];
-
-    // Question clarity
-    if (market.question.endsWith('?')) {
-      score += 0.5;
-      reasons.push('Clear question format');
-    } else {
-      issues.push('Question doesn\'t end with "?"');
-    }
-
-    // Has data source in question
-    if (market.question.toLowerCase().includes('source:') || market.question.includes('http')) {
-      score += 0.5;
-      reasons.push('Includes data source reference');
-    } else {
-      issues.push('No data source referenced — add "Source: ..." for faster resolution');
-    }
-
-    // Category detected
-    if (category !== 'general') {
-      score += 0.25;
-      reasons.push(`Clear category: ${category}`);
-    } else {
-      issues.push('Category unclear — consider making the topic more specific');
-    }
-
-    // Pool activity
-    if (market.totalPoolSol > 0.1) {
-      score += 0.5;
-      reasons.push('Has betting activity');
-    } else if (market.totalPoolSol === 0) {
-      issues.push('No bets yet — market may need promotion');
-    }
-
-    // Timing
-    if (timingAnalysis.startsWith('⚠️')) {
-      score -= 0.5;
-      issues.push('Timing issue: ' + timingAnalysis);
-    } else if (timingAnalysis.startsWith('✅')) {
-      score += 0.25;
-      reasons.push('Good closing timing');
-    }
-
-    // Test market detection
-    if (market.question.toLowerCase().includes('[test]') || market.question.toLowerCase().includes('auto-test')) {
-      score -= 1;
-      issues.push('Appears to be a test market');
-    }
-
-    // Vague question detection
-    if (market.question.length < 20) {
-      score -= 0.5;
-      issues.push('Question is very short — may be too vague');
-    }
-
-    // Clamp score
-    score = Math.max(1, Math.min(5, Math.round(score * 2) / 2));
-
-    return { score, reasons, issues };
-  }
-
-  /**
-   * Format the metadata analysis as an AgentBook post.
-   */
-  formatAsPost(market: Market, metadata: MarketMetadata): string {
-    const stars = '★'.repeat(Math.floor(metadata.qualityScore)) + 
-                  (metadata.qualityScore % 1 >= 0.5 ? '½' : '') +
-                  '☆'.repeat(5 - Math.ceil(metadata.qualityScore));
-
-    let post = `🔍 Market Analysis: "${market.question}"\n\n`;
-    post += `Category: ${metadata.category} | Tags: ${metadata.tags.join(', ')}\n`;
-    post += `Quality: ${stars} (${metadata.qualityScore}/5)\n`;
-    post += `Timing: ${metadata.timingAnalysis}\n`;
-
-    if (metadata.issues.length > 0) {
-      post += `\n⚠️ Suggestions:\n`;
-      for (const issue of metadata.issues.slice(0, 3)) {
-        post += `• ${issue}\n`;
-      }
-    }
-
-    if (metadata.qualityReasons.length > 0) {
-      post += `\n✅ Strengths:\n`;
-      for (const reason of metadata.qualityReasons.slice(0, 3)) {
-        post += `• ${reason}\n`;
-      }
-    }
-
-    post += `\nbaozi.bet/market/${market.publicKey}`;
-
-    return post.substring(0, 2000);
-  }
-
-  /**
-   * Format as a short market comment.
-   */
-  formatAsComment(market: Market, metadata: MarketMetadata): string {
-    let comment = `Quality: ${'★'.repeat(Math.floor(metadata.qualityScore))}${'☆'.repeat(5 - Math.floor(metadata.qualityScore))} | Category: ${metadata.category}`;
-
-    if (metadata.issues.length > 0) {
-      comment += ` | Suggestion: ${metadata.issues[0]}`;
-    }
-
-    return comment.substring(0, 500);
-  }
+  return { valid: true, notes: `Timing type: ${timingType} - no specific validation applicable` };
 }
+
+/**
+ * Calculate quality score (0-100) based on 5 quality flags.
+ */
+function calculateQuality(
+  question: string,
+  classification: LLMClassification | null,
+  timingValid: boolean,
+  totalPoolSol: number,
+  existingMarkets: string[]
+): { score: number; flags: string[] } {
+  const flags: string[] = [];
+  let score = 0;
+
+  // Flag 1: Question clarity (ends with ?, not too short, not too long)
+  if (question.endsWith('?') && question.length >= 20 && question.length <= 200) {
+    score += 20;
+    flags.push('clear-question');
+  }
+
+  // Flag 2: Objective verifiability
+  if (classification && !classification.isSubjective) {
+    score += 20;
+    flags.push('objectively-verifiable');
+  } else if (!classification) {
+    // Heuristic: questions with numbers, dates, or measurable terms are likely objective
+    if (/\d/.test(question) || /by|before|after|reach|exceed/i.test(question)) {
+      score += 15;
+      flags.push('likely-verifiable');
+    }
+  }
+
+  // Flag 3: Timing rules compliance
+  if (timingValid) {
+    score += 20;
+    flags.push('timing-compliant');
+  }
+
+  // Flag 4: Has data source
+  if (classification?.dataSource) {
+    score += 20;
+    flags.push(`data-source:${classification.dataSource}`);
+  }
+
+  // Flag 5: Not a duplicate
+  const isDuplicate = existingMarkets.some(existing => {
+    const similarity = jaccardSimilarity(question.toLowerCase(), existing.toLowerCase());
+    return similarity > 0.6;
+  });
+
+  if (!isDuplicate) {
+    score += 20;
+    flags.push('unique');
+  } else {
+    flags.push('potential-duplicate');
+  }
+
+  return { score, flags };
+}
+
+function jaccardSimilarity(a: string, b: string): number {
+  const setA = new Set(a.split(/\s+/));
+  const setB = new Set(b.split(/\s+/));
+  const intersection = new Set([...setA].filter(x => setB.has(x)));
+  const union = new Set([...setA, ...setB]);
+  return union.size === 0 ? 0 : intersection.size / union.size;
+}
+
+/**
+ * Fallback keyword classification when LLM is unavailable.
+ */
+function keywordClassify(question: string): { category: string; tags: string[] } {
+  const q = question.toLowerCase();
+  const categories: Record<string, string[]> = {
+    crypto: ['bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto', 'token', 'defi', 'nft'],
+    sports: ['nba', 'nfl', 'mlb', 'fifa', 'world cup', 'championship', 'game', 'match', 'team', 'player'],
+    politics: ['president', 'election', 'vote', 'congress', 'senate', 'trump', 'democrat', 'republican', 'policy'],
+    tech: ['apple', 'google', 'ai', 'openai', 'microsoft', 'launch', 'release', 'software', 'chip'],
+    entertainment: ['movie', 'album', 'oscars', 'grammy', 'box office', 'netflix', 'spotify'],
+    science: ['nasa', 'space', 'climate', 'research', 'discovery', 'study'],
+    economics: ['fed', 'rate', 'gdp', 'inflation', 'stock', 'market', 'dow', 'sp500'],
+  };
+
+  for (const [cat, keywords] of Object.entries(categories)) {
+    if (keywords.some(k => q.includes(k))) {
+      const matchedTags = keywords.filter(k => q.includes(k));
+      return { category: cat, tags: matchedTags.slice(0, 5) };
+    }
+  }
+  return { category: 'other', tags: [] };
+}
+
+/**
+ * Enrich a single market with metadata.
+ */
+export async function enrichMarket(
+  market: { publicKey: string; question: string; closingTime: string; totalPoolSol: number },
+  existingQuestions: string[]
+): Promise<MarketMetadata> {
+  // Try LLM classification first
+  const llmResult = await classifyWithLLM(market.question, market.closingTime);
+
+  let category: string;
+  let tags: string[];
+  let timingType: 'A' | 'B' | 'unknown';
+
+  if (llmResult) {
+    category = llmResult.category;
+    tags = llmResult.tags;
+    timingType = llmResult.timingType;
+  } else {
+    const fallback = keywordClassify(market.question);
+    category = fallback.category;
+    tags = fallback.tags;
+    timingType = 'unknown';
+  }
+
+  // Validate timing rules
+  const timing = validateTiming(
+    market.closingTime,
+    timingType,
+    llmResult?.eventTime || undefined,
+    llmResult?.measurementStart || undefined
+  );
+
+  // Calculate quality score
+  const quality = calculateQuality(
+    market.question,
+    llmResult,
+    timing.valid,
+    market.totalPoolSol,
+    existingQuestions
+  );
+
+  return {
+    marketPda: market.publicKey,
+    question: market.question,
+    category,
+    tags,
+    qualityScore: quality.score,
+    qualityFlags: quality.flags,
+    timingType,
+    timingValid: timing.valid,
+    timingNotes: timing.notes,
+    enrichedAt: new Date().toISOString(),
+  };
+}
+
+export { validateTiming, calculateQuality, keywordClassify, jaccardSimilarity };
