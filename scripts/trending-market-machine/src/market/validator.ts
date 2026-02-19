@@ -1,13 +1,53 @@
-// Validate market questions against Baozi rules before creation
+// Validate market questions against Baozi Parimutuel Rules v7.0
 import { CONFIG, type MarketQuestion, type ValidationResult } from "../config.ts";
 
 const HOURS = 60 * 60 * 1000;
 const DAYS = 24 * HOURS;
 
+// v7.0 Blocked terms — auto-reject any question containing these
+const BLOCKED_TERMS = [
+  "price above", "price below", "trading volume", "market cap",
+  "gains most", "total volume", "total burned", "average over",
+  "this week", "this month", "floor price", "ath", "all-time high",
+  "tvl", "total value locked",
+];
+
 // Local pre-validation (catch issues before hitting the API)
 export function localValidate(market: MarketQuestion): ValidationResult {
   const violations: ValidationResult["violations"] = [];
   const now = Date.now();
+
+  // v7.0 CRITICAL: Type B markets are BANNED
+  if (market.timingType === "B") {
+    violations.push({
+      severity: "critical",
+      rule: "TYPE_B_BANNED_V7",
+      message: "Measurement-period (Type B) markets are banned under Parimutuel Rules v7.0. Only Type A (event-based) markets are allowed.",
+    });
+  }
+
+  // v7.0: Check for blocked terms
+  const questionLower = market.question.toLowerCase();
+  for (const term of BLOCKED_TERMS) {
+    if (questionLower.includes(term)) {
+      violations.push({
+        severity: "critical",
+        rule: "BLOCKED_TERM_V7",
+        message: `Question contains blocked term "${term}". Price/volume/metric markets are banned under v7.0.`,
+      });
+      break; // One blocked term is enough
+    }
+  }
+
+  // v7.0 Core test: "Can a bettor observe or calculate the likely outcome while betting is still open?"
+  // Flag price-adjacent patterns even if not exact blocked terms
+  if (questionLower.match(/\b(price|volume|tvl|mcap|rank|cap|floor)\b/)) {
+    violations.push({
+      severity: "critical",
+      rule: "PRICE_ADJACENT_V7",
+      message: "Market appears price-adjacent. v7.0 requires genuinely unknowable outcomes.",
+    });
+  }
 
   // Check minimum time until close (48h)
   const hoursUntilClose = (market.closingTime.getTime() - now) / HOURS;
@@ -39,20 +79,16 @@ export function localValidate(market: MarketQuestion): ValidationResult {
   }
 
   // Type A: closing must be 24h before event
-  if (market.timingType === "A") {
-    // We can't know the exact event time, but we flag if close is too close to resolution
-    const gapHours = (market.resolutionTime.getTime() - market.closingTime.getTime()) / HOURS;
+  if (market.timingType === "A" && market.eventTime) {
+    const gapHours = (market.eventTime.getTime() - market.closingTime.getTime()) / HOURS;
     if (gapHours < 24) {
       violations.push({
-        severity: "warning",
+        severity: "critical",
         rule: "TYPE_A_24H_GAP",
-        message: `Type A markets should close 24h+ before the event. Gap: ${gapHours.toFixed(1)}h.`,
+        message: `Type A markets must close 24h+ before the event. Gap: ${gapHours.toFixed(1)}h.`,
       });
     }
   }
-
-  // Type B: closing must be before measurement period starts
-  // (This is enforced by our generator, but double-check)
 
   // Question quality checks
   if (market.question.length < 20) {
@@ -108,27 +144,17 @@ export function localValidate(market: MarketQuestion): ValidationResult {
 // Remote validation via Baozi API
 export async function remoteValidate(market: MarketQuestion): Promise<ValidationResult> {
   try {
-    // Build payload matching Baozi's expected format
+    // Build payload matching Baozi's expected format (v7.0: Type A only)
     const payload: Record<string, unknown> = {
       question: market.question,
       closingTime: market.closingTime.toISOString(),
-      marketType: market.timingType === "A" ? "typeA" : "typeB",
+      marketType: "typeA",
       description: market.description,
       dataSource: market.dataSource,
       backupSource: market.backupSource || `${market.dataSource} (cross-referenced)`,
       category: market.category,
+      eventTime: market.eventTime.toISOString(),
     };
-
-    // Type A needs eventTime
-    if (market.timingType === "A" && market.eventTime) {
-      payload.eventTime = market.eventTime.toISOString();
-    }
-
-    // Type B needs measurement period
-    if (market.timingType === "B" && market.measurementStart) {
-      payload.measurementStart = market.measurementStart.toISOString();
-      payload.measurementEnd = market.measurementEnd?.toISOString();
-    }
 
     const resp = await fetch(CONFIG.BAOZI_VALIDATE_URL, {
       method: "POST",

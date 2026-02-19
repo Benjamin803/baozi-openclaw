@@ -56,7 +56,7 @@ export async function createLabMarket(
   console.log(`Category: ${market.category}`);
   console.log(`Close: ${market.closingTime.toISOString()}`);
   console.log(`Resolution: ${market.resolutionTime.toISOString()}`);
-  console.log(`Timing: Type ${market.timingType}`);
+  console.log(`Timing: Type A (event-based, v7.0)`);
   console.log(`Data source: ${market.dataSource}`);
 
   // Check for duplicates

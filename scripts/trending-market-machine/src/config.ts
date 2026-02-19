@@ -53,13 +53,10 @@ export interface MarketQuestion {
   dataSourceUrl: string;
   tags: string[];
   trendSource: TrendingTopic;
-  // Type A (event) or Type B (measurement)
-  timingType: "A" | "B";
-  // Type A: when the event happens
-  eventTime?: Date;
-  // Type B: measurement period
-  measurementStart?: Date;
-  measurementEnd?: Date;
+  // v7.0: Only Type A (event-based) markets allowed. Type B is banned.
+  timingType: "A";
+  // When the event happens (must be 24h+ after closingTime)
+  eventTime: Date;
   // Backup data source for resolution
   backupSource?: string;
 }

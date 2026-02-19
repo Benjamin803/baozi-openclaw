@@ -1,81 +1,193 @@
 // Convert trending topics into properly-structured market questions
-// Follows Baozi pari-mutuel timing rules v6.3
+// Follows Baozi Parimutuel Rules v7.0 — TYPE A ONLY (no measurement-period markets)
 import { CONFIG, type TrendingTopic, type MarketQuestion } from "../config.ts";
 
 const HOURS = 60 * 60 * 1000;
 const DAYS = 24 * HOURS;
 
-// Crypto-specific market generators
+// v7.0 Blocked terms — auto-reject any question containing these
+const BLOCKED_TERMS = [
+  "price above", "price below", "trading volume", "market cap",
+  "gains most", "total volume", "total burned", "average over",
+  "this week", "this month", "floor price", "ath", "all-time high",
+  "tvl", "total value locked",
+];
+
+function containsBlockedTerm(text: string): boolean {
+  const lower = text.toLowerCase();
+  return BLOCKED_TERMS.some((term) => lower.includes(term));
+}
+
+// Crypto market generators — v7.0: event-based only (no price/volume/rank)
 function generateCryptoMarket(topic: TrendingTopic): MarketQuestion | null {
   const meta = topic.metadata;
   const symbol = (meta.symbol as string)?.toUpperCase();
-  const rank = meta.marketCapRank as number | undefined;
-  const priceChange = meta.priceChangePercent24h as number | undefined;
+  const coinName = (meta.name as string) || symbol;
 
   if (!symbol) return null;
 
-  // Don't create price prediction markets — continuous observable price means
-  // no real uncertainty at close time. Bad for pari-mutuel.
-  // Instead: adoption metrics, volume, rank movement.
+  const title = topic.title.toLowerCase();
 
-  const now = new Date();
-
-  // Market cap rank movement (Type B — measurement period)
-  if (rank && rank > 10 && rank <= 100) {
-    const targetRank = Math.max(1, rank - 10);
-    const measureStart = new Date(now.getTime() + 7 * DAYS);
-    const measureEnd = new Date(now.getTime() + 14 * DAYS);
-    const closingTime = new Date(measureStart.getTime() - 1 * HOURS);
+  // Mainnet/testnet launch detection
+  if (title.match(/\b(mainnet|launch|upgrade|hard\s*fork|v\d|testnet|migration)\b/)) {
+    const eventTime = new Date(Date.now() + 14 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
 
     return {
-      question: `Will ${symbol} enter CoinGecko's top ${targetRank} by market cap during the week of ${formatDate(measureStart)}?`,
-      description: `${topic.title}. Currently ranked #${rank}. Measurement period: ${formatDate(measureStart)} to ${formatDate(measureEnd)}. Resolution based on CoinGecko market cap ranking snapshot at end of measurement period.`,
+      question: `Will ${coinName} (${symbol}) launch the upgrade or mainnet mentioned in "${truncate(topic.title, 60)}" before ${formatDate(eventTime)}?`,
+      description: `Trending: "${topic.title}". Resolves YES if the specific upgrade, mainnet launch, or migration is officially completed and announced before the event date. Resolution via official project announcement.`,
       marketType: "boolean",
       category: "crypto",
       closingTime,
-      resolutionTime: new Date(measureEnd.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
-      dataSource: "CoinGecko market cap rankings",
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: `Official ${coinName} project announcements (Twitter/X, blog, Discord)`,
       dataSourceUrl: `https://www.coingecko.com/en/coins/${meta.coinId}`,
-      tags: ["crypto", symbol.toLowerCase(), "market-cap", "trending"],
+      tags: ["crypto", symbol.toLowerCase(), "launch", "upgrade"],
       trendSource: topic,
-      timingType: "B",
-      measurementStart: measureStart,
-      measurementEnd: measureEnd,
-      backupSource: "CoinMarketCap market cap rankings",
+      timingType: "A",
+      eventTime,
+      backupSource: "CoinDesk / The Block coverage",
     };
   }
 
-  // Volume-based market for trending coins with big price moves (Type B)
-  if (priceChange && Math.abs(priceChange) > 15) {
-    const direction = priceChange > 0 ? "maintain" : "recover";
-    const measureStart = new Date(now.getTime() + 3 * DAYS);
-    const measureEnd = new Date(now.getTime() + 7 * DAYS);
-    const closingTime = new Date(measureStart.getTime() - 1 * HOURS);
+  // Exchange listing detection
+  if (title.match(/\b(list|listing|delist|add|support)\b/i)) {
+    const eventTime = new Date(Date.now() + 10 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
 
     return {
-      question: `Will ${symbol} 24h trading volume on CoinGecko exceed $100M during ${formatDate(measureStart)} to ${formatDate(measureEnd)}?`,
-      description: `${symbol} is trending with ${priceChange > 0 ? "+" : ""}${priceChange.toFixed(1)}% price change in 24h. This market asks whether trading interest will ${direction} elevated volume. Resolution: highest single-day 24h volume during measurement period per CoinGecko.`,
+      question: `Will ${symbol} be listed on a new major exchange (Binance, Coinbase, Kraken) before ${formatDate(eventTime)}?`,
+      description: `${coinName} is trending. This market asks whether it will gain a new listing on a major centralized exchange. Resolves YES if officially listed and tradeable. Source: official exchange announcement.`,
       marketType: "boolean",
       category: "crypto",
       closingTime,
-      resolutionTime: new Date(measureEnd.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
-      dataSource: "CoinGecko trading volume",
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "Official exchange listing announcements",
       dataSourceUrl: `https://www.coingecko.com/en/coins/${meta.coinId}`,
-      tags: ["crypto", symbol.toLowerCase(), "volume", "trending"],
+      tags: ["crypto", symbol.toLowerCase(), "listing"],
       trendSource: topic,
-      timingType: "B",
-      measurementStart: measureStart,
-      measurementEnd: measureEnd,
-      backupSource: "CoinMarketCap trading volume",
+      timingType: "A",
+      eventTime,
+      backupSource: "CoinGecko exchange listing page",
+    };
+  }
+
+  // Partnership/integration announcements
+  if (title.match(/\b(partner|integrat|collaborat|join|alliance)\b/i)) {
+    const eventTime = new Date(Date.now() + 10 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
+
+    return {
+      question: `Will the ${coinName} partnership in "${truncate(topic.title, 60)}" be officially confirmed before ${formatDate(eventTime)}?`,
+      description: `Trending: "${topic.title}". Resolves YES if the partnership or integration is officially confirmed by both parties before the event date.`,
+      marketType: "boolean",
+      category: "crypto",
+      closingTime,
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "Official project press releases and announcements",
+      dataSourceUrl: topic.url || `https://www.coingecko.com/en/coins/${meta.coinId}`,
+      tags: ["crypto", symbol.toLowerCase(), "partnership"],
+      trendSource: topic,
+      timingType: "A",
+      eventTime,
+      backupSource: "CoinDesk / The Block coverage",
+    };
+  }
+
+  // Governance/DAO vote outcomes
+  if (title.match(/\b(governance|proposal|vote|dao|referendum)\b/i)) {
+    const eventTime = new Date(Date.now() + 7 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
+
+    return {
+      question: `Will the ${coinName} governance proposal in "${truncate(topic.title, 60)}" pass before ${formatDate(eventTime)}?`,
+      description: `Trending: "${topic.title}". Resolves YES if the governance proposal passes its voting period with majority approval. Resolution via official governance platform (Snapshot, on-chain vote).`,
+      marketType: "boolean",
+      category: "crypto",
+      closingTime,
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "Official governance platform (Snapshot / on-chain)",
+      dataSourceUrl: topic.url || `https://www.coingecko.com/en/coins/${meta.coinId}`,
+      tags: ["crypto", symbol.toLowerCase(), "governance"],
+      trendSource: topic,
+      timingType: "A",
+      eventTime,
+      backupSource: "Project Discord / forum announcement",
+    };
+  }
+
+  // Fallback for trending coins: generate listing/milestone event market
+  // Only for coins trending on CoinGecko without matching specific event keywords
+  if (topic.source === "coingecko") {
+    const rank = meta.marketCapRank as number | undefined;
+    const eventTime = new Date(Date.now() + 10 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
+
+    // For top-20 coins (BTC, ETH, SOL, etc.): network upgrade/hard fork events
+    if (rank && rank <= 20) {
+      return {
+        question: `Will ${coinName} (${symbol}) have a major network upgrade or protocol change announced before ${formatDate(eventTime)}?`,
+        description: `${coinName} is trending on CoinGecko (ranked #${rank}). Resolves YES if a new network upgrade, hard fork, or major protocol change is officially announced (not just proposed) by core developers before the event date.`,
+        marketType: "boolean",
+        category: "crypto",
+        closingTime,
+        resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+        dataSource: `Official ${coinName} developer blog or GitHub`,
+        dataSourceUrl: topic.url || `https://www.coingecko.com/en/coins/${meta.coinId}`,
+        tags: ["crypto", symbol.toLowerCase(), "upgrade", "trending"],
+        trendSource: topic,
+        timingType: "A",
+        eventTime,
+        backupSource: "CoinDesk / The Block coverage",
+      };
+    }
+
+    // For top-100 coins: "Will X announce a major partnership?"
+    if (rank && rank <= 100) {
+      return {
+        question: `Will ${coinName} (${symbol}) announce a major partnership or integration before ${formatDate(eventTime)}?`,
+        description: `${coinName} is currently trending on CoinGecko (ranked #${rank}). This market resolves YES if ${coinName} officially announces a new major partnership, integration, or ecosystem expansion before the event date. Must be confirmed by official project channels.`,
+        marketType: "boolean",
+        category: "crypto",
+        closingTime,
+        resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+        dataSource: `Official ${coinName} announcements (Twitter/X, blog)`,
+        dataSourceUrl: topic.url || `https://www.coingecko.com/en/coins/${meta.coinId}`,
+        tags: ["crypto", symbol.toLowerCase(), "partnership", "trending"],
+        trendSource: topic,
+        timingType: "A",
+        eventTime,
+        backupSource: "CoinDesk / The Block coverage",
+      };
+    }
+
+    // For lower-ranked coins: "Will X get listed on Binance/Coinbase?"
+    return {
+      question: `Will ${coinName} (${symbol}) be listed on Binance or Coinbase before ${formatDate(eventTime)}?`,
+      description: `${coinName} is trending on CoinGecko${rank ? ` (ranked #${rank})` : ""}. This market resolves YES if ${symbol} becomes available for trading on Binance or Coinbase (spot market). Must be officially listed and tradeable.`,
+      marketType: "boolean",
+      category: "crypto",
+      closingTime,
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "Binance and Coinbase official listing announcements",
+      dataSourceUrl: topic.url || `https://www.coingecko.com/en/coins/${meta.coinId}`,
+      tags: ["crypto", symbol.toLowerCase(), "listing", "exchange"],
+      trendSource: topic,
+      timingType: "A",
+      eventTime,
+      backupSource: "CoinGecko exchange listing page",
     };
   }
 
   return null;
 }
 
-// Tech/general news market generators
+// Tech/general news market generators — v7.0: event-based only
 function generateNewsMarket(topic: TrendingTopic): MarketQuestion | null {
   const title = topic.title.toLowerCase();
+
+  // Skip if contains blocked terms
+  if (containsBlockedTerm(title)) return null;
 
   // Product launch detection
   if (title.match(/\b(launch|release|announce|unveil|reveal|introduce|debut)\b/)) {
@@ -86,7 +198,7 @@ function generateNewsMarket(topic: TrendingTopic): MarketQuestion | null {
       question: `Will the product/feature mentioned in "${truncate(topic.title, 80)}" be publicly available within 14 days?`,
       description: `Trending news: "${topic.title}". Source: ${topic.source}. Resolves YES if the product/feature/announcement becomes publicly available or officially confirmed within 14 days of market creation.`,
       marketType: "boolean",
-      category: "economic", // closest Baozi standard category for tech
+      category: "economic",
       closingTime,
       resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
       dataSource: "Official press release or product page",
@@ -121,35 +233,102 @@ function generateNewsMarket(topic: TrendingTopic): MarketQuestion | null {
     };
   }
 
-  // High-engagement HN stories — will engagement sustain? (Type B)
-  const hnPoints = topic.metadata.points as number | undefined;
-  if (topic.source === "hackernews" && hnPoints && hnPoints > 300) {
-    const measureStart = new Date(Date.now() + 3 * DAYS);
-    const measureEnd = new Date(Date.now() + 7 * DAYS);
-    const closingTime = new Date(measureStart.getTime() - 1 * HOURS);
+  // Regulatory/legal decisions
+  if (title.match(/\b(regulate|ruling|ban|approve|court|lawsuit|sec|fcc|fda|eu)\b/)) {
+    const eventTime = new Date(Date.now() + 14 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
 
     return {
-      question: `Will "${truncate(topic.title, 60)}" (HN story) receive over 500 points by ${formatDate(measureEnd)}?`,
-      description: `Currently at ${hnPoints} points on HackerNews. Resolves based on final point count visible at ${topic.url} at end of measurement period.`,
+      question: `Will the regulatory action in "${truncate(topic.title, 80)}" be officially decided before ${formatDate(eventTime)}?`,
+      description: `Trending: "${topic.title}". Source: ${topic.source}. Resolves YES if an official decision, ruling, or regulatory action is publicly announced before the event date.`,
       marketType: "boolean",
-      category: "economic", // tech news = economic in Baozi
+      category: "economic",
       closingTime,
-      resolutionTime: new Date(measureEnd.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
-      dataSource: "HackerNews story page (news.ycombinator.com)",
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "Official government/agency press release",
       dataSourceUrl: topic.url || "",
-      tags: ["hackernews", "engagement"],
+      tags: ["regulation", "policy"],
       trendSource: topic,
-      timingType: "B",
-      measurementStart: measureStart,
-      measurementEnd: measureEnd,
-      backupSource: "HackerNews API (hacker-news.firebaseio.com)",
+      timingType: "A",
+      eventTime,
+      backupSource: "AP / Reuters coverage",
+    };
+  }
+
+  // IPO/public listing detection
+  if (title.match(/\b(ipo|public|s-1|filing|nasdaq|nyse)\b/)) {
+    const eventTime = new Date(Date.now() + 14 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
+
+    return {
+      question: `Will the company in "${truncate(topic.title, 80)}" file for IPO before ${formatDate(eventTime)}?`,
+      description: `Trending: "${topic.title}". Source: ${topic.source}. Resolves YES if an S-1 or equivalent IPO filing is submitted to the SEC or relevant regulatory body before the event date.`,
+      marketType: "boolean",
+      category: "economic",
+      closingTime,
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "SEC EDGAR filings",
+      dataSourceUrl: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany",
+      tags: ["business", "ipo"],
+      trendSource: topic,
+      timingType: "A",
+      eventTime,
+      backupSource: "Bloomberg / Reuters coverage",
+    };
+  }
+
+  // Open source milestone detection (e.g. GitHub stars, releases)
+  if (title.match(/\b(open.?source|github|star|release|milestone)\b/) && topic.source === "hackernews") {
+    const eventTime = new Date(Date.now() + 14 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
+
+    // Extract project name from title
+    const projectMatch = topic.title.match(/([A-Z][a-zA-Z0-9-]+)/);
+    const projectName = projectMatch ? projectMatch[1] : "the project";
+
+    return {
+      question: `Will ${projectName} release a new major version before ${formatDate(eventTime)}?`,
+      description: `Trending on HackerNews: "${topic.title}". Resolves YES if a new major release (e.g. v2.0, v3.0) is published on GitHub or official channels before the event date.`,
+      marketType: "boolean",
+      category: "economic",
+      closingTime,
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "GitHub releases page",
+      dataSourceUrl: topic.url || "",
+      tags: ["tech", "opensource", "release"],
+      trendSource: topic,
+      timingType: "A",
+      eventTime,
+      backupSource: "Official project blog / changelog",
+    };
+  }
+
+  // Fallback for high-scoring HackerNews topics: "Will this story get mainstream coverage?"
+  if (topic.source === "hackernews" && topic.score > 50) {
+    const eventTime = new Date(Date.now() + 7 * DAYS);
+    const closingTime = new Date(eventTime.getTime() - 24 * HOURS);
+
+    return {
+      question: `Will "${truncate(topic.title, 70)}" be covered by a major news outlet (NYT, BBC, CNN, Reuters) before ${formatDate(eventTime)}?`,
+      description: `Trending on HackerNews: "${topic.title}". Resolves YES if the topic is covered by a major mainstream news outlet (New York Times, BBC, CNN, Reuters, AP, Washington Post) before the event date. Must be a dedicated article, not just a mention.`,
+      marketType: "boolean",
+      category: "economic",
+      closingTime,
+      resolutionTime: new Date(eventTime.getTime() + CONFIG.DEFAULT_RESOLUTION_BUFFER_SECONDS * 1000),
+      dataSource: "Major news outlets (NYT, BBC, CNN, Reuters, AP)",
+      dataSourceUrl: topic.url || "",
+      tags: ["tech", "media", "coverage"],
+      trendSource: topic,
+      timingType: "A",
+      eventTime,
+      backupSource: "Google News search",
     };
   }
 
   return null;
 }
 
-// Sports market generators
+// Sports market generators — already Type A compliant
 function generateSportsMarket(topic: TrendingTopic): MarketQuestion | null {
   const title = topic.title;
 
