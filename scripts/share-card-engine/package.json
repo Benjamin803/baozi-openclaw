@@ -1,0 +1,16 @@
+{
+  "name": "share-card-engine",
+  "version": "1.0.0",
+  "description": "Auto-generate and distribute share cards for Baozi prediction market activity",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "monitor": "bun run src/index.ts monitor",
+    "generate": "bun run src/index.ts generate",
+    "demo": "bun run src/index.ts demo"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0"
+  }
+}
