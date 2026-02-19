@@ -1,0 +1,7 @@
+Bot handle: @baozi_markets_bot
+Started: Thu Feb 19 04:42:44 UTC 2026
+Connected to Telegram API successfully.
+Serving commands against https://baozi.bet/api/markets (64 mainnet markets)
+
+Wallet: FyzVsqsBnUoDVchFU4y5tS7ptvi5onfuFcm9iSC1ChMz
+Bounty: #9 (0.5 SOL)

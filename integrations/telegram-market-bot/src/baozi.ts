@@ -19,9 +19,20 @@ export interface Market {
 
 export class BaoziClient {
   private apiUrl = 'https://baozi.bet/api/markets';
+  private lastRequestTime: number = 0;
+
+  private async throttle(): Promise<void> {
+    const now = Date.now();
+    const diff = now - this.lastRequestTime;
+    if (diff < 1000) {
+      await new Promise(resolve => setTimeout(resolve, 1000 - diff));
+    }
+    this.lastRequestTime = Date.now();
+  }
 
   async getAllMarkets(): Promise<Market[]> {
     try {
+      await this.throttle();
       const response = await axios.get(this.apiUrl);
       if (response.data.success && response.data.data && response.data.data.binary) {
         return response.data.data.binary;

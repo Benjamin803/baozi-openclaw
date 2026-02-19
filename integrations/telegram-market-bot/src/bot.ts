@@ -302,5 +302,8 @@ bot.callbackQuery(/^refresh_markets(_(.+))?$/, async (ctx) => {
     await ctx.answerCallbackQuery("Refreshed");
 });
 
-bot.start();
-console.log("Bot is running...");
+bot.start({
+    onStart: (botInfo) => {
+        console.log(`Bot @${botInfo.username} is running...`);
+    }
+});
