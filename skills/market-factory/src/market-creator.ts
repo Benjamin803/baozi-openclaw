@@ -1,25 +1,24 @@
 /**
- * Market Creator — On-chain market creation
+ * Market Creator — On-chain market creation via MCP Server
  *
- * Signs and sends create_lab_market_sol transactions to Baozi program.
- * Uses existing CreatorProfile PDA for 0.5% creator fees.
+ * Uses @baozi.bet/mcp-server's build_create_lab_market_transaction tool
+ * to create markets on-chain, then signs and submits the transaction.
  */
 import {
   Connection,
-  PublicKey,
-  Transaction,
-  TransactionInstruction,
-  SystemProgram,
   Keypair,
-  sendAndConfirmTransaction,
+  Transaction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { config, CONFIG_PDA, CREATE_LAB_MARKET_SOL_DISCRIMINATOR, MARKET_COUNT_OFFSET } from './config';
+import { config } from './config';
 import { MarketProposal } from './news-detector';
+import { classifyAndValidateTiming, enforceTimingRules } from './news-detector';
 import { recordMarket } from './tracker';
+import { McpClient } from './mcp-client';
 
 let connection: Connection;
 let keypair: Keypair;
+let mcpClient: McpClient | null = null;
 
 function getConnection(): Connection {
   if (!connection) {
@@ -36,42 +35,13 @@ function getKeypair(): Keypair {
   return keypair;
 }
 
-// =============================================================================
-// PDA DERIVATION
-// =============================================================================
-
-function deriveMarketPda(marketId: bigint): [PublicKey, number] {
-  const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(marketId);
-  return PublicKey.findProgramAddressSync(
-    [config.seeds.MARKET, buf],
-    config.programId
-  );
-}
-
-function deriveCreatorProfilePda(creator: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from('creator_profile'), creator.toBuffer()],
-    config.programId
-  );
-}
-
-// =============================================================================
-// GET NEXT MARKET ID
-// =============================================================================
-
-async function getNextMarketId(): Promise<bigint> {
-  const conn = getConnection();
-  const configAccount = await conn.getAccountInfo(CONFIG_PDA);
-  if (!configAccount) {
-    throw new Error('GlobalConfig not found on-chain');
+async function getMcpClient(): Promise<McpClient> {
+  if (!mcpClient) {
+    mcpClient = new McpClient();
+    await mcpClient.start();
   }
-  return configAccount.data.readBigUInt64LE(MARKET_COUNT_OFFSET);
+  return mcpClient;
 }
-
-// =============================================================================
-// BUILD & SEND TRANSACTION
-// =============================================================================
 
 export interface CreateMarketResult {
   success: boolean;
@@ -81,150 +51,119 @@ export interface CreateMarketResult {
   error?: string;
 }
 
+/**
+ * Create a lab market using MCP server's build_create_lab_market_transaction.
+ * 1. Validate timing rules
+ * 2. Validate question via MCP
+ * 3. Build unsigned tx via MCP
+ * 4. Sign locally and submit to Solana
+ */
 export async function createLabMarket(proposal: MarketProposal): Promise<CreateMarketResult> {
   const conn = getConnection();
   const kp = getKeypair();
-  const creatorPubkey = kp.publicKey;
 
   try {
-    // 1. Get current market count
-    const marketId = await getNextMarketId();
-    const [marketPda] = deriveMarketPda(marketId);
-    const [creatorProfilePda] = deriveCreatorProfilePda(creatorPubkey);
-
-    // 2. Check creator profile exists (we created it earlier)
-    const creatorProfileInfo = await conn.getAccountInfo(creatorProfilePda);
-    const hasCreatorProfile = creatorProfileInfo !== null;
-
-    if (!hasCreatorProfile) {
-      console.warn('⚠️ No CreatorProfile found — markets will not earn creator fees');
+    // 1. Validate and enforce timing rules locally
+    const timingCheck = classifyAndValidateTiming(proposal);
+    if (!timingCheck.valid) {
+      const adjusted = enforceTimingRules(proposal);
+      if (!adjusted) {
+        return { success: false, marketPda: '', marketId: 0, txSignature: '', error: `Timing violation: ${timingCheck.reason}` };
+      }
+      proposal = adjusted;
     }
 
-    // 3. Encode instruction data
-    const closingTimeSec = BigInt(Math.floor(proposal.closingTime.getTime() / 1000));
-    const resolutionBuffer = BigInt(config.defaultResolutionBufferSec);
-    const autoStopBuffer = BigInt(config.defaultAutoStopBufferSec);
-    const resolutionMode = 1; // CouncilOracle
-    const council = [creatorPubkey]; // Creator is the council
-    const councilThreshold = 1;
+    console.log(`  Timing: ${timingCheck.type} - ${timingCheck.reason}`);
 
-    const questionBytes = Buffer.from(proposal.question, 'utf8');
-    const size = 8 + 4 + questionBytes.length + 8 + 8 + 8 + 1 + 4 + (council.length * 32) + 1;
-    const data = Buffer.alloc(size);
-    let offset = 0;
+    // 2. Get MCP client and validate question
+    const mcp = await getMcpClient();
 
-    CREATE_LAB_MARKET_SOL_DISCRIMINATOR.copy(data, offset); offset += 8;
-    data.writeUInt32LE(questionBytes.length, offset); offset += 4;
-    questionBytes.copy(data, offset); offset += questionBytes.length;
-    data.writeBigInt64LE(closingTimeSec, offset); offset += 8;
-    data.writeBigInt64LE(resolutionBuffer, offset); offset += 8;
-    data.writeBigInt64LE(autoStopBuffer, offset); offset += 8;
-    data.writeUInt8(resolutionMode, offset); offset += 1;
-    data.writeUInt32LE(council.length, offset); offset += 4;
-    for (const member of council) {
-      member.toBuffer().copy(data, offset); offset += 32;
+    try {
+      const validation = await mcp.validateMarketQuestion(proposal.question);
+      if (validation && !validation.valid) {
+        return { success: false, marketPda: '', marketId: 0, txSignature: '', error: `Question validation failed: ${validation.issues.join(', ')}` };
+      }
+    } catch (e: any) {
+      console.warn(`  MCP validation skipped: ${e.message}`);
     }
-    data.writeUInt8(councilThreshold, offset);
 
-    // 4. Build accounts
-    const keys = [
-      { pubkey: CONFIG_PDA, isSigner: false, isWritable: true },
-      { pubkey: marketPda, isSigner: false, isWritable: true },
-      { pubkey: config.configTreasury, isSigner: false, isWritable: true },
-      { pubkey: creatorPubkey, isSigner: true, isWritable: true },
-      {
-        pubkey: hasCreatorProfile ? creatorProfilePda : config.programId,
-        isSigner: false,
-        isWritable: hasCreatorProfile,
-      },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-    ];
+    // 3. Build unsigned transaction via MCP
+    const closingTimeISO = proposal.closingTime.toISOString();
+    let buildResult: any;
 
-    const instruction = new TransactionInstruction({
-      programId: config.programId,
-      keys,
-      data,
-    });
+    try {
+      buildResult = await mcp.buildCreateLabMarketTransaction({
+        question: proposal.question,
+        closingTime: closingTimeISO,
+        creatorWallet: kp.publicKey.toBase58(),
+        resolutionMode: 'CouncilOracle',
+        councilMembers: [kp.publicKey.toBase58()],
+      });
+    } catch (e: any) {
+      return { success: false, marketPda: '', marketId: 0, txSignature: '', error: `MCP build failed: ${e.message}` };
+    }
 
-    // 5. Build, sign, send transaction
-    const transaction = new Transaction().add(instruction);
-    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('finalized');
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = creatorPubkey;
+    if (!buildResult || !buildResult.transaction) {
+      return { success: false, marketPda: '', marketId: 0, txSignature: '', error: 'MCP returned no transaction data' };
+    }
 
-    const txSignature = await sendAndConfirmTransaction(conn, transaction, [kp], {
-      commitment: 'confirmed',
+    // 4. Deserialize, sign, and send
+    const txBuffer = Buffer.from(buildResult.transaction, 'base64');
+    const tx = Transaction.from(txBuffer);
+    tx.sign(kp);
+
+    const txSignature = await conn.sendRawTransaction(tx.serialize(), {
+      skipPreflight: false,
       maxRetries: 3,
     });
 
-    console.log(`\n🎉 Market created on-chain!`);
-    console.log(`   Question: "${proposal.question}"`);
-    console.log(`   Market PDA: ${marketPda.toBase58()}`);
-    console.log(`   Market ID: ${Number(marketId)}`);
-    console.log(`   TX: ${txSignature}`);
-    console.log(`   Closing: ${proposal.closingTime.toISOString()}`);
-    console.log(`   Category: ${proposal.category}`);
+    await conn.confirmTransaction(txSignature, 'confirmed');
 
-    // 6. Record in database
+    const marketPda = buildResult.marketPda || '';
+
+    console.log(`\n  Market created via MCP!`);
+    console.log(`  PDA: ${marketPda}`);
+    console.log(`  TX: ${txSignature}`);
+
+    // 5. Record in tracker
     recordMarket({
-      market_pda: marketPda.toBase58(),
-      market_id: Number(marketId),
+      market_pda: marketPda,
+      market_id: 0,
       question: proposal.question,
       category: proposal.category,
       source: proposal.source,
       source_url: proposal.sourceUrl,
-      closing_time: proposal.closingTime.toISOString(),
+      closing_time: closingTimeISO,
       resolution_outcome: null,
       tx_signature: txSignature,
     });
 
-    return {
-      success: true,
-      marketPda: marketPda.toBase58(),
-      marketId: Number(marketId),
-      txSignature,
-    };
+    return { success: true, marketPda, marketId: 0, txSignature };
   } catch (err: any) {
-    const errorMsg = err.message || String(err);
-    console.error(`\n❌ Failed to create market: ${errorMsg}`);
-
-    // Parse Solana program errors
-    if (errorMsg.includes('custom program error')) {
-      const codeMatch = errorMsg.match(/0x(\w+)/);
-      if (codeMatch) {
-        const code = parseInt(codeMatch[1], 16);
-        console.error(`   Program error code: ${code}`);
-      }
-    }
-
-    return {
-      success: false,
-      marketPda: '',
-      marketId: 0,
-      txSignature: '',
-      error: errorMsg,
-    };
+    return { success: false, marketPda: '', marketId: 0, txSignature: '', error: err.message || String(err) };
   }
 }
-
-// =============================================================================
-// CHECK WALLET BALANCE
-// =============================================================================
 
 export async function getWalletBalance(): Promise<number> {
   const conn = getConnection();
   const kp = getKeypair();
   const balance = await conn.getBalance(kp.publicKey);
-  return balance / 1_000_000_000; // lamports to SOL
+  return balance / 1_000_000_000;
 }
 
 export async function canAffordMarketCreation(): Promise<boolean> {
   const balance = await getWalletBalance();
-  // Need 0.01 SOL creation fee + ~0.005 SOL for tx fee + rent
   const needed = 0.015;
   if (balance < needed) {
-    console.warn(`⚠️ Low balance: ${balance.toFixed(4)} SOL (need ${needed} SOL for market creation)`);
+    console.warn(`Low balance: ${balance.toFixed(4)} SOL (need ${needed} SOL)`);
     return false;
   }
   return true;
+}
+
+export async function shutdownMcp(): Promise<void> {
+  if (mcpClient) {
+    await mcpClient.stop();
+    mcpClient = null;
+  }
 }
