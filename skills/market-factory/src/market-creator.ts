@@ -51,43 +51,108 @@ export interface CreateMarketResult {
   error?: string;
 }
 
+/** Max retries for on-chain transaction submission */
+const TX_MAX_RETRIES = 3;
+/** Base delay (ms) for exponential backoff between retries */
+const TX_RETRY_BASE_DELAY_MS = 2000;
+
+/**
+ * Sleep helper for retry backoff.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Submit a signed transaction with exponential-backoff retry.
+ * Retries on transient network / RPC errors; does NOT retry on program errors
+ * (e.g. InstructionError) because those will fail deterministically.
+ */
+async function sendWithRetry(
+  conn: Connection,
+  rawTx: Buffer,
+  retries = TX_MAX_RETRIES,
+): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const sig = await conn.sendRawTransaction(rawTx, {
+        skipPreflight: false,
+        maxRetries: 2,
+      });
+      await conn.confirmTransaction(sig, 'confirmed');
+      return sig;
+    } catch (err: any) {
+      lastError = err;
+      const msg: string = err?.message || String(err);
+
+      // Program / instruction errors are deterministic - don't retry
+      if (
+        msg.includes('custom program error') ||
+        msg.includes('InstructionError') ||
+        msg.includes('insufficient funds')
+      ) {
+        throw err;
+      }
+
+      // Transient errors - retry with backoff
+      const delayMs = TX_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.warn(`  ⚠️ TX attempt ${attempt}/${retries} failed (${msg}). Retrying in ${delayMs}ms...`);
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError || new Error('sendWithRetry exhausted all attempts');
+}
+
 /**
  * Create a lab market using MCP server's build_create_lab_market_transaction.
- * 1. Validate timing rules
- * 2. Validate question via MCP
- * 3. Build unsigned tx via MCP
- * 4. Sign locally and submit to Solana
+ *
+ * Pipeline:
+ *   1. Validate & enforce pari-mutuel v6.3 timing rules (local)
+ *   2. Validate question via MCP server
+ *   3. Build unsigned tx via MCP build_create_lab_market_transaction
+ *   4. Sign locally, submit to Solana with exponential-backoff retry
+ *   5. Record in local tracker DB
  */
 export async function createLabMarket(proposal: MarketProposal): Promise<CreateMarketResult> {
   const conn = getConnection();
   const kp = getKeypair();
 
   try {
-    // 1. Validate and enforce timing rules locally
+    // ── 1. Validate and enforce pari-mutuel v6.3 timing rules ──────────
     const timingCheck = classifyAndValidateTiming(proposal);
     if (!timingCheck.valid) {
       const adjusted = enforceTimingRules(proposal);
       if (!adjusted) {
-        return { success: false, marketPda: '', marketId: 0, txSignature: '', error: `Timing violation: ${timingCheck.reason}` };
+        return {
+          success: false, marketPda: '', marketId: 0, txSignature: '',
+          error: `Timing violation (v6.3 ${timingCheck.type}): ${timingCheck.reason}`,
+        };
       }
+      console.log(`  🔧 Timing adjusted to comply with v6.3 ${timingCheck.type} rules`);
       proposal = adjusted;
     }
 
     console.log(`  Timing: ${timingCheck.type} - ${timingCheck.reason}`);
 
-    // 2. Get MCP client and validate question
+    // ── 2. Validate question via MCP ───────────────────────────────────
     const mcp = await getMcpClient();
 
     try {
       const validation = await mcp.validateMarketQuestion(proposal.question);
       if (validation && !validation.valid) {
-        return { success: false, marketPda: '', marketId: 0, txSignature: '', error: `Question validation failed: ${validation.issues.join(', ')}` };
+        return {
+          success: false, marketPda: '', marketId: 0, txSignature: '',
+          error: `Question validation failed: ${validation.issues.join(', ')}`,
+        };
       }
     } catch (e: any) {
       console.warn(`  MCP validation skipped: ${e.message}`);
     }
 
-    // 3. Build unsigned transaction via MCP
+    // ── 3. Build unsigned transaction via MCP ──────────────────────────
     const closingTimeISO = proposal.closingTime.toISOString();
     let buildResult: any;
 
@@ -100,32 +165,33 @@ export async function createLabMarket(proposal: MarketProposal): Promise<CreateM
         councilMembers: [kp.publicKey.toBase58()],
       });
     } catch (e: any) {
-      return { success: false, marketPda: '', marketId: 0, txSignature: '', error: `MCP build failed: ${e.message}` };
+      return {
+        success: false, marketPda: '', marketId: 0, txSignature: '',
+        error: `MCP build_create_lab_market_transaction failed: ${e.message}`,
+      };
     }
 
     if (!buildResult || !buildResult.transaction) {
-      return { success: false, marketPda: '', marketId: 0, txSignature: '', error: 'MCP returned no transaction data' };
+      return {
+        success: false, marketPda: '', marketId: 0, txSignature: '',
+        error: 'MCP returned no transaction data (empty response from build_create_lab_market_transaction)',
+      };
     }
 
-    // 4. Deserialize, sign, and send
+    // ── 4. Deserialize, sign, and send with retry ──────────────────────
     const txBuffer = Buffer.from(buildResult.transaction, 'base64');
     const tx = Transaction.from(txBuffer);
     tx.sign(kp);
 
-    const txSignature = await conn.sendRawTransaction(tx.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
-
-    await conn.confirmTransaction(txSignature, 'confirmed');
+    const txSignature = await sendWithRetry(conn, Buffer.from(tx.serialize()));
 
     const marketPda = buildResult.marketPda || '';
 
-    console.log(`\n  Market created via MCP!`);
+    console.log(`\n  ✅ Market created via MCP!`);
     console.log(`  PDA: ${marketPda}`);
-    console.log(`  TX: ${txSignature}`);
+    console.log(`  TX: https://solscan.io/tx/${txSignature}`);
 
-    // 5. Record in tracker
+    // ── 5. Record in tracker ───────────────────────────────────────────
     recordMarket({
       market_pda: marketPda,
       market_id: 0,
