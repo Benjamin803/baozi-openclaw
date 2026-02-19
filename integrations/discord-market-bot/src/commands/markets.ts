@@ -1,4 +1,5 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SafeEmbedBuilder } from '../utils/embed';
 import { Command } from './interface';
 import { Market, RaceMarket } from '../types';
 
@@ -31,18 +32,14 @@ export const marketsCommand: Command = {
       return;
     }
 
-    // Limit to 10 for simplicity in one embed, or use pagination logic if needed.
-    // For now, I'll show top 10 by closing time (soonest first) which getMarkets already sorts.
-    const displayMarkets = markets.slice(0, 10);
-
-    const embed = new EmbedBuilder()
+    const embed = new SafeEmbedBuilder()
       .setTitle(`Baozi Markets (${status})`)
       .setColor('#0099ff')
-      .setDescription(`Found ${markets.length} markets. Showing top ${displayMarkets.length}.`)
+      .setDescription(`Found ${markets.length} markets.`)
       .setFooter({ text: 'Powered by Baozi Prediction Markets' })
       .setTimestamp();
 
-    for (const market of displayMarkets) {
+    for (const market of markets) {
       const closingDate = market.closingTime.toLocaleDateString();
       let value = '';
       

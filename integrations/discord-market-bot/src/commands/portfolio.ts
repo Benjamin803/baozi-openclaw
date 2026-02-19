@@ -1,4 +1,5 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder } from 'discord.js';
+import { SafeEmbedBuilder } from '../utils/embed';
 import { Command } from './interface';
 
 export const portfolioCommand: Command = {
@@ -21,18 +22,14 @@ export const portfolioCommand: Command = {
       return;
     }
 
-    const embed = new EmbedBuilder()
+    const embed = new SafeEmbedBuilder()
       .setTitle(`Portfolio: ${wallet.substring(0, 6)}...${wallet.substring(wallet.length - 4)}`)
       .setColor('#ffcc00')
       .setDescription(`Found ${positions.length} active/historical positions.`)
       .setFooter({ text: 'Powered by Baozi Prediction Markets' })
       .setTimestamp();
 
-    let count = 0;
     for (const pos of positions) {
-      if (count >= 10) break;
-      count++;
-      
       const status = pos.claimed ? 'Claimed' : 'Active';
       const side = pos.side;
       const amount = pos.totalAmountSol;
@@ -42,10 +39,6 @@ export const portfolioCommand: Command = {
         value: `Side: **${side}** • Amount: ${amount} SOL • Status: ${status}`,
         inline: false
       });
-    }
-
-    if (positions.length > 10) {
-      embed.setDescription(`Found ${positions.length} positions. Showing top 10.`);
     }
 
     await interaction.editReply({ embeds: [embed] });

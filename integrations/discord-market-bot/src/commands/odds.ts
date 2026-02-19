@@ -1,4 +1,5 @@
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder } from 'discord.js';
+import { SafeEmbedBuilder } from '../utils/embed';
 import { Command } from './interface';
 import { Market, RaceMarket } from '../types';
 
@@ -28,16 +29,7 @@ export const oddsCommand: Command = {
     // First try by key
     let market = await client.getMarket(marketIdOrKey);
     
-    // If not found by key, try to find by ID (fetch all active/resolved and filter? inefficient)
-    // Or just fetch market by deriving PDA from ID if it's numeric.
-    // Client.getMarket handles PDA. But user might input ID "123".
-    // I should add `getMarketById` to client or just try to derive PDA here.
-    // But `deriveMarketPda` is internal or in `config`.
-    // Let's stick to key for now, or fetch all and find.
-    
     if (!market) {
-      // Try to list all and find by ID.
-      // This is slow but works for small number of markets.
       const allMarkets = await client.getMarkets();
       market = allMarkets.find(m => m.marketId === marketIdOrKey) || null;
     }
@@ -47,7 +39,7 @@ export const oddsCommand: Command = {
       return;
     }
 
-    const embed = new EmbedBuilder()
+    const embed = new SafeEmbedBuilder()
       .setTitle(market.question)
       .setDescription(`Market ID: ${market.marketId}\nStatus: ${market.status}\nPool: ${market.totalPoolSol} SOL`)
       .setColor('#00ff00')
@@ -55,13 +47,15 @@ export const oddsCommand: Command = {
       .setTimestamp();
 
     if (isRaceMarket(market)) {
-      // Race Market
-      let outcomesText = '';
+      // Race Market - add each outcome as a field
       for (const outcome of market.outcomes) {
         const bar = createProgressBar(outcome.percent);
-        outcomesText += `**${outcome.label}**: ${outcome.percent}% (${outcome.poolSol} SOL)\n\`${bar}\`\n\n`;
+        embed.addFields({
+           name: outcome.label,
+           value: `${outcome.percent}% (${outcome.poolSol} SOL)\n\`${bar}\``,
+           inline: true
+        });
       }
-      embed.addFields({ name: 'Outcomes', value: outcomesText });
     } else {
       // Boolean Market
       const yesBar = createProgressBar(market.yesPercent);
