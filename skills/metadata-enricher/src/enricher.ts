@@ -175,7 +175,7 @@ function calculateQuality(
   // Flag 5: Not a duplicate
   const isDuplicate = existingMarkets.some(existing => {
     const similarity = jaccardSimilarity(question.toLowerCase(), existing.toLowerCase());
-    return similarity > 0.6;
+    return similarity > 0.45;
   });
 
   if (!isDuplicate) {
@@ -189,8 +189,9 @@ function calculateQuality(
 }
 
 function jaccardSimilarity(a: string, b: string): number {
-  const setA = new Set(a.split(/\s+/));
-  const setB = new Set(b.split(/\s+/));
+  const tokenize = (s: string) => s.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+  const setA = new Set(tokenize(a));
+  const setB = new Set(tokenize(b));
   const intersection = new Set([...setA].filter(x => setB.has(x)));
   const union = new Set([...setA, ...setB]);
   return union.size === 0 ? 0 : intersection.size / union.size;
