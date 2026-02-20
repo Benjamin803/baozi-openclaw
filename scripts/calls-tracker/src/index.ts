@@ -41,6 +41,10 @@ async function main() {
       process.argv = [process.argv[0], process.argv[1], ...process.argv.slice(3)];
       await import("./cli/demo.ts");
       break;
+    case "live":
+      process.argv = [process.argv[0], process.argv[1], ...process.argv.slice(3)];
+      await import("./cli/live.ts");
+      break;
     default:
       console.log("Commands:");
       console.log("  call       — Make a new prediction call");
@@ -48,6 +52,7 @@ async function main() {
       console.log("  resolve    — Check and resolve outcomes");
       console.log("  track      — Manage callers");
       console.log("  demo       — Run demo with example calls");
+      console.log("  live       — Create REAL markets on mainnet from parsed predictions");
       console.log();
       console.log("Examples:");
       console.log('  bun run src/index.ts call --caller "CryptoKing" --prediction "BTC $110k by March"');

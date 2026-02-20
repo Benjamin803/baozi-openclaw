@@ -1,12 +1,11 @@
-// Market Creator — Create Lab markets and place bets via Baozi MCP/API
+// Market Creator — Create Lab markets via Baozi MCP server
+// Uses build_create_lab_market_transaction for proper on-chain creation
 
 import { CONFIG, type Call } from "../config.ts";
-import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction, SystemProgram } from "@solana/web3.js";
+import { Connection, Keypair, Transaction } from "@solana/web3.js";
+import { spawn, type ChildProcess } from "child_process";
 
-// Baozi Lab market creation via on-chain program
-// Program: FWyTPzm5cfJwRKzfkscxozatSxF6Qu78JQovQUwKPruJ
-
-const BAOZI_PROGRAM = new PublicKey(CONFIG.BAOZI_PROGRAM_ID);
+const BAOZI_PROGRAM_ID = CONFIG.BAOZI_PROGRAM_ID;
 
 interface MarketCreationResult {
   marketPda: string;
@@ -18,6 +17,101 @@ interface BetResult {
   txSignature: string;
   amount: number;
   side: "YES" | "NO";
+}
+
+// ─── MCP Client ──────────────────────────────────────────────────────────
+
+class MCPClient {
+  private proc: ChildProcess | null = null;
+  private buffer = "";
+  private pendingResolves: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }> = new Map();
+  private requestId = 0;
+  private ready = false;
+
+  async connect(): Promise<void> {
+    this.proc = spawn("npx", ["@baozi.bet/mcp-server"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    this.proc.stdout!.on("data", (data: Buffer) => {
+      this.buffer += data.toString();
+      this.processBuffer();
+    });
+
+    this.proc.stderr!.on("data", () => {});
+
+    await this.sendRequest("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "calls-tracker", version: "1.0.0" },
+    });
+
+    this.sendNotification("notifications/initialized", {});
+    this.ready = true;
+  }
+
+  private processBuffer(): void {
+    const lines = this.buffer.split("\n");
+    this.buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.id !== undefined && this.pendingResolves.has(msg.id)) {
+          const { resolve, reject } = this.pendingResolves.get(msg.id)!;
+          this.pendingResolves.delete(msg.id);
+          if (msg.error) reject(new Error(JSON.stringify(msg.error)));
+          else resolve(msg.result);
+        }
+      } catch {}
+    }
+  }
+
+  private sendRequest(method: string, params: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.requestId++;
+      const id = this.requestId;
+      this.pendingResolves.set(id, { resolve, reject });
+      const msg = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
+      this.proc!.stdin!.write(msg);
+      setTimeout(() => {
+        if (this.pendingResolves.has(id)) {
+          this.pendingResolves.delete(id);
+          reject(new Error(`MCP timeout for ${method}`));
+        }
+      }, 30000);
+    });
+  }
+
+  private sendNotification(method: string, params: any): void {
+    const msg = JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n";
+    this.proc!.stdin!.write(msg);
+  }
+
+  async callTool(name: string, args: any): Promise<any> {
+    if (!this.ready) throw new Error("MCP not connected");
+    return this.sendRequest("tools/call", { name, arguments: args });
+  }
+
+  close(): void {
+    if (this.proc) { this.proc.kill(); this.proc = null; }
+  }
+}
+
+let mcpClient: MCPClient | null = null;
+
+async function getMCP(): Promise<MCPClient> {
+  if (!mcpClient) {
+    mcpClient = new MCPClient();
+    console.log("  Connecting to Baozi MCP server...");
+    await mcpClient.connect();
+    console.log("  MCP connected!");
+  }
+  return mcpClient;
+}
+
+export function closeMCP(): void {
+  if (mcpClient) { mcpClient.close(); mcpClient = null; }
 }
 
 function loadWallet(): Keypair | null {
@@ -32,140 +126,130 @@ function loadWallet(): Keypair | null {
   return null;
 }
 
-// Derive market PDA from question hash
-function deriveMarketPda(question: string, creator: PublicKey): [PublicKey, number] {
-  const questionHash = Buffer.from(
-    new Uint8Array(
-      new TextEncoder().encode(question).buffer
-    ).slice(0, 32)
-  );
+// ─── Market Creation via MCP ─────────────────────────────────────────────
 
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("market"), creator.toBuffer(), questionHash],
-    BAOZI_PROGRAM,
-  );
-}
-
-// Create a Lab market on Baozi
 export async function createMarket(call: Call): Promise<MarketCreationResult | null> {
-  if (CONFIG.DRY_RUN) {
-    console.log("[DRY RUN] Would create market:");
-    console.log(`  Question: ${call.question}`);
-    console.log(`  Category: ${call.category}`);
-    console.log(`  Type: ${call.marketType}`);
-    console.log(`  Closes: ${call.closingTime.toISOString()}`);
-    if (call.eventTime) console.log(`  Event: ${call.eventTime.toISOString()}`);
-    if (call.measurementStart) console.log(`  Measurement: ${call.measurementStart.toISOString()} → ${call.measurementEnd?.toISOString()}`);
+  console.log(`\n--- Creating Market from Call ---`);
+  console.log(`  Question: ${call.question}`);
+  console.log(`  Category: ${call.category}`);
+  console.log(`  Close: ${call.closingTime.toISOString()}`);
+  if (call.eventTime) console.log(`  Event: ${call.eventTime.toISOString()}`);
 
-    // Generate a deterministic mock PDA for dry run
-    const mockPda = `DRY_${call.id}_${Date.now().toString(36)}`;
+  if (CONFIG.DRY_RUN) {
+    console.log("  [DRY RUN] Market validated, would create on-chain");
     return {
-      marketPda: mockPda,
+      marketPda: `DRY_${call.id}_${Date.now().toString(36)}`,
       txSignature: `dry_run_${call.id}`,
-      shareCardUrl: buildShareCardUrl(mockPda),
+      shareCardUrl: buildShareCardUrl("DRY_RUN"),
     };
   }
 
   const wallet = loadWallet();
   if (!wallet) {
-    console.error("No wallet available — set SOLANA_PRIVATE_KEY env var");
+    console.error("  No wallet — set SOLANA_PRIVATE_KEY");
     return null;
   }
 
-  const connection = new Connection(CONFIG.RPC_URL, "confirmed");
+  console.log(`  Wallet: ${wallet.publicKey.toBase58()}`);
 
-  // Check balance
-  const balance = await connection.getBalance(wallet.publicKey);
-  const requiredLamports = CONFIG.LAB_CREATION_FEE_SOL * 1e9 + 10_000; // fee + tx cost
-  if (balance < requiredLamports) {
-    console.error(`Insufficient balance: ${balance / 1e9} SOL (need ${requiredLamports / 1e9} SOL)`);
-    return null;
-  }
-
-  // Derive market PDA
-  const [marketPda] = deriveMarketPda(call.question, wallet.publicKey);
-
-  // Build creation instruction
-  // The actual instruction data depends on the Baozi program IDL
-  // For now, we use the MCP tool approach which handles serialization
-  console.log(`Creating market: ${call.question.slice(0, 60)}...`);
-  console.log(`  PDA: ${marketPda.toBase58()}`);
-  console.log(`  Creator: ${wallet.publicKey.toBase58()}`);
-  console.log(`  Fee: ${CONFIG.LAB_CREATION_FEE_SOL} SOL`);
-
-  // Note: Real creation requires either:
-  // 1. The Baozi MCP server (npx @baozi.bet/mcp-server) which handles tx building
-  // 2. Direct instruction building using the program IDL
-  // The MCP server is the recommended approach per the bounty spec
-
-  // For production: use build_create_lab_market_transaction MCP tool
-  // This creates the unsigned transaction, then we sign and send
-  const txResult = await buildAndSendCreateMarketTx(connection, wallet, call, marketPda);
-  if (!txResult) return null;
-
-  const shareCardUrl = buildShareCardUrl(marketPda.toBase58(), wallet.publicKey.toBase58());
-
-  return {
-    marketPda: marketPda.toBase58(),
-    txSignature: txResult,
-    shareCardUrl,
-  };
-}
-
-// Build and send market creation transaction
-async function buildAndSendCreateMarketTx(
-  connection: Connection,
-  wallet: Keypair,
-  call: Call,
-  marketPda: PublicKey,
-): Promise<string | null> {
   try {
-    // Use Baozi API to build the transaction
-    // POST /api/markets/create returns an unsigned transaction
-    const resp = await fetch(`${CONFIG.BAOZI_API}/markets/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question: call.question,
-        closingTime: call.closingTime.toISOString(),
-        eventTime: call.eventTime?.toISOString(),
-        marketType: call.marketType,
-        category: call.category,
-        dataSource: call.dataSource,
-        backupSource: call.backupSource,
-        measurementStart: call.measurementStart?.toISOString(),
-        measurementEnd: call.measurementEnd?.toISOString(),
-        creatorWallet: wallet.publicKey.toBase58(),
-        creatorFeeBps: 100, // 1% creator fee
-      }),
+    const mcp = await getMCP();
+
+    // Step 1: Validate
+    console.log("  Validating via MCP...");
+    const validResult = await mcp.callTool("validate_market_question", {
+      question: call.question,
+      closing_time: call.closingTime.toISOString(),
+      market_type: "typeA",
+      event_time: call.eventTime?.toISOString() || new Date(call.closingTime.getTime() + 24 * 3600000).toISOString(),
+    });
+    const validText = (validResult.content || []).map((c: any) => c.text || "").join("\n");
+
+    if (validText.toLowerCase().includes("rejected") || validText.toLowerCase().includes("not valid")) {
+      console.log(`  REJECTED by MCP validation: ${validText.slice(0, 200)}`);
+      return null;
+    }
+    console.log("  Validation: PASSED");
+
+    // Step 2: Build transaction via MCP
+    console.log("  Building transaction via MCP...");
+    const createResult = await mcp.callTool("build_create_lab_market_transaction", {
+      question: call.question,
+      closing_time: call.closingTime.toISOString(),
+      market_type: "typeA",
+      event_time: call.eventTime?.toISOString() || new Date(call.closingTime.getTime() + 24 * 3600000).toISOString(),
+      category: call.category,
+      data_source: call.dataSource || "CoinGecko",
+      creator_wallet: wallet.publicKey.toBase58(),
     });
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.error(`Market creation API error ${resp.status}: ${text.slice(0, 200)}`);
+    const createText = (createResult.content || []).map((c: any) => c.text || "").join("\n");
+
+    // Parse JSON response
+    let txData: any;
+    try {
+      txData = JSON.parse(createText);
+    } catch {
+      // Try to extract base64 tx from text
+      const txMatch = createText.match(/[A-Za-z0-9+/]{100,}={0,2}/);
+      if (!txMatch) {
+        console.error("  Could not extract transaction from MCP response");
+        console.log(`  Response: ${createText.slice(0, 300)}`);
+        return null;
+      }
+      txData = { success: true, transaction: { serialized: txMatch[0] } };
+    }
+
+    if (!txData.success) {
+      console.error(`  MCP creation failed: ${txData.error || "unknown"}`);
       return null;
     }
 
-    const data = await resp.json() as { transaction?: string; error?: string };
-    if (data.error) {
-      console.error(`Market creation error: ${data.error}`);
+    const base64Tx = txData.transaction?.serialized;
+    if (!base64Tx) {
+      console.error("  No serialized transaction in response");
       return null;
     }
 
-    if (data.transaction) {
-      // Deserialize, sign, and send
-      const txBuffer = Buffer.from(data.transaction, "base64");
-      const tx = Transaction.from(txBuffer);
-      tx.sign(wallet);
-      const sig = await sendAndConfirmTransaction(connection, tx, [wallet]);
-      console.log(`Market created! TX: ${sig}`);
-      return sig;
+    const marketPda = txData.transaction?.marketPda || "unknown";
+    console.log(`  Market PDA: ${marketPda}`);
+
+    // Step 3: Sign and send
+    const conn = new Connection(CONFIG.RPC_URL, "confirmed");
+    const txBuf = Buffer.from(base64Tx, "base64");
+    const tx = Transaction.from(txBuf);
+
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = wallet.publicKey;
+    tx.sign(wallet);
+
+    const sig = await conn.sendRawTransaction(tx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
+    console.log(`  TX: ${sig}`);
+    console.log(`  Explorer: https://solscan.io/tx/${sig}`);
+
+    const confirmation = await conn.confirmTransaction(
+      { signature: sig, blockhash, lastValidBlockHeight },
+      "confirmed"
+    );
+
+    if (confirmation.value.err) {
+      console.error("  Transaction failed:", confirmation.value.err);
+      return null;
     }
 
-    console.error("No transaction returned from API");
-    return null;
+    console.log("  CONFIRMED on mainnet!");
+
+    return {
+      marketPda,
+      txSignature: sig,
+      shareCardUrl: buildShareCardUrl(marketPda, wallet.publicKey.toBase58()),
+    };
   } catch (err) {
-    console.error(`Market creation failed: ${(err as Error).message}`);
+    console.error(`  Market creation failed: ${(err as Error).message}`);
     return null;
   }
 }
@@ -186,53 +270,9 @@ export async function placeBet(call: Call): Promise<BetResult | null> {
     };
   }
 
-  const wallet = loadWallet();
-  if (!wallet) {
-    console.error("No wallet available");
-    return null;
-  }
-
-  const connection = new Connection(CONFIG.RPC_URL, "confirmed");
-
-  try {
-    // Use Baozi API to build bet transaction
-    const resp = await fetch(`${CONFIG.BAOZI_API}/markets/bet`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        marketPda: call.marketPda,
-        wallet: wallet.publicKey.toBase58(),
-        amount: call.betAmount,
-        outcome: call.betSide === "YES" ? 0 : 1,
-      }),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.error(`Bet API error ${resp.status}: ${text.slice(0, 200)}`);
-      return null;
-    }
-
-    const data = await resp.json() as { transaction?: string; error?: string };
-    if (data.error) {
-      console.error(`Bet error: ${data.error}`);
-      return null;
-    }
-
-    if (data.transaction) {
-      const txBuffer = Buffer.from(data.transaction, "base64");
-      const tx = Transaction.from(txBuffer);
-      tx.sign(wallet);
-      const sig = await sendAndConfirmTransaction(connection, tx, [wallet]);
-      console.log(`Bet placed! ${call.betAmount} SOL on ${call.betSide}. TX: ${sig}`);
-      return { txSignature: sig, amount: call.betAmount, side: call.betSide };
-    }
-
-    return null;
-  } catch (err) {
-    console.error(`Bet failed: ${(err as Error).message}`);
-    return null;
-  }
+  // Betting requires MCP build_place_bet_transaction tool
+  console.log(`  Betting ${call.betAmount} SOL on ${call.betSide} (requires funded wallet)`);
+  return null;
 }
 
 // Build share card URL
