@@ -49,12 +49,15 @@ export async function fetchProofs(): Promise<ProofBatch[]> {
     throw new Error(`Proofs API returned ${resp.status}: ${await resp.text()}`);
   }
 
-  const data = await resp.json() as { success: boolean; proofs: ProofBatch[] };
-  if (!data.success) {
-    throw new Error("Proofs API returned success=false");
+  const data = await resp.json();
+  if (!data || typeof data !== "object" || !data.success) {
+    throw new Error("Proofs API returned unexpected response");
+  }
+  if (!Array.isArray(data.proofs)) {
+    throw new Error("Proofs API response missing proofs array");
   }
 
-  return data.proofs;
+  return data.proofs as ProofBatch[];
 }
 
 // Calculate oracle stats from proof data

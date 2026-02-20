@@ -22,7 +22,7 @@ function parseArgs(): { tier?: number; category?: string; search?: string; pda?:
     switch (args[i]) {
       case "--tier":
       case "-t":
-        tier = parseInt(args[++i]);
+        tier = parseInt(args[++i], 10);
         break;
       case "--category":
       case "-c":

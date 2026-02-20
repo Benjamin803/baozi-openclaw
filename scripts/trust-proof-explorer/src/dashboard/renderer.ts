@@ -145,22 +145,26 @@ export function generateHTML(proofs: ProofBatch[], stats: OracleStats): string {
   const marketsHTML = proofs.flatMap(batch =>
     batch.markets.map(m => {
       const tier = tierDescription(batch.tier);
+      const isUrl = m.source.startsWith("http://") || m.source.startsWith("https://");
+      const sourceLink = isUrl
+        ? `<a href="${encodeURI(m.source)}" target="_blank">${escapeHTML(m.source)}</a>`
+        : `<span>${escapeHTML(m.source)}</span>`;
       return `
     <div class="proof-card">
       <div class="proof-header">
-        <span class="tier tier-${batch.tier}">${tier.name}</span>
-        <span class="category">${batch.category}</span>
-        <span class="date">${batch.date}</span>
+        <span class="tier tier-${escapeHTML(String(batch.tier))}">${escapeHTML(tier.name)}</span>
+        <span class="category">${escapeHTML(batch.category)}</span>
+        <span class="date">${escapeHTML(batch.date)}</span>
       </div>
       <h3>${escapeHTML(m.question)}</h3>
-      <div class="outcome outcome-${m.outcome.toLowerCase()}">${m.outcome}</div>
+      <div class="outcome outcome-${escapeHTML(m.outcome.toLowerCase())}">${escapeHTML(m.outcome)}</div>
       <div class="evidence">
         <strong>Evidence:</strong> ${escapeHTML(m.evidence)}
       </div>
       <div class="links">
-        <a href="${escapeHTML(m.source)}" target="_blank">Source</a>
-        <a href="${solscanUrl(m.pda)}" target="_blank">Solscan</a>
-        <code>${m.pda.slice(0, 12)}...${m.pda.slice(-4)}</code>
+        ${sourceLink}
+        <a href="${encodeURI(solscanUrl(m.pda))}" target="_blank">Solscan</a>
+        <code>${escapeHTML(m.pda.slice(0, 12))}...${escapeHTML(m.pda.slice(-4))}</code>
       </div>
     </div>`;
     })
@@ -168,15 +172,15 @@ export function generateHTML(proofs: ProofBatch[], stats: OracleStats): string {
 
   const tierRows = Object.entries(stats.byTier).map(([tier, count]) => {
     const info = tierDescription(Number(tier));
-    const pct = ((count / stats.totalMarkets) * 100).toFixed(1);
-    return `<tr><td>Tier ${tier}</td><td>${info.name}</td><td>${count}</td><td>${pct}%</td></tr>`;
+    const pct = stats.totalMarkets > 0 ? ((count / stats.totalMarkets) * 100).toFixed(1) : "0";
+    return `<tr><td>Tier ${escapeHTML(tier)}</td><td>${escapeHTML(info.name)}</td><td>${escapeHTML(String(count))}</td><td>${escapeHTML(pct)}%</td></tr>`;
   }).join("\n");
 
   const catRows = Object.entries(stats.byCategory)
     .sort((a, b) => b[1] - a[1])
     .map(([cat, count]) => {
-      const pct = ((count / stats.totalMarkets) * 100).toFixed(1);
-      return `<tr><td>${cat}</td><td>${count}</td><td>${pct}%</td></tr>`;
+      const pct = stats.totalMarkets > 0 ? ((count / stats.totalMarkets) * 100).toFixed(1) : "0";
+      return `<tr><td>${escapeHTML(cat)}</td><td>${escapeHTML(String(count))}</td><td>${escapeHTML(pct)}%</td></tr>`;
     }).join("\n");
 
   return `<!DOCTYPE html>
@@ -229,16 +233,16 @@ export function generateHTML(proofs: ProofBatch[], stats: OracleStats): string {
 
   <div class="trust-badge">
     <div class="score">100%</div>
-    <div class="label">Trust Score — ${stats.totalMarkets} markets resolved, 0 disputes, 0 overturned</div>
+    <div class="label">Trust Score — ${escapeHTML(String(stats.totalMarkets))} markets resolved, 0 disputes, 0 overturned</div>
   </div>
 
   <div class="stats-grid">
-    <div class="stat"><div class="stat-value">${stats.totalMarkets}</div><div class="stat-label">Markets Resolved</div></div>
-    <div class="stat"><div class="stat-value">${stats.totalBatches}</div><div class="stat-label">Proof Batches</div></div>
-    <div class="stat"><div class="stat-value">${Object.keys(stats.byCategory).length}</div><div class="stat-label">Categories</div></div>
+    <div class="stat"><div class="stat-value">${escapeHTML(String(stats.totalMarkets))}</div><div class="stat-label">Markets Resolved</div></div>
+    <div class="stat"><div class="stat-value">${escapeHTML(String(stats.totalBatches))}</div><div class="stat-label">Proof Batches</div></div>
+    <div class="stat"><div class="stat-value">${escapeHTML(String(Object.keys(stats.byCategory).length))}</div><div class="stat-label">Categories</div></div>
     <div class="stat"><div class="stat-value">0</div><div class="stat-label">Disputes</div></div>
-    <div class="stat"><div class="stat-value">${stats.uniqueSources.length}</div><div class="stat-label">Unique Sources</div></div>
-    <div class="stat"><div class="stat-value">${stats.avgMarketsPerBatch.toFixed(1)}</div><div class="stat-label">Avg/Batch</div></div>
+    <div class="stat"><div class="stat-value">${escapeHTML(String(stats.uniqueSources.length))}</div><div class="stat-label">Unique Sources</div></div>
+    <div class="stat"><div class="stat-value">${escapeHTML(stats.avgMarketsPerBatch.toFixed(1))}</div><div class="stat-label">Avg/Batch</div></div>
   </div>
 
   <h2>Resolution Proofs</h2>
@@ -279,9 +283,10 @@ export function generateHTML(proofs: ProofBatch[], stats: OracleStats): string {
 }
 
 function escapeHTML(text: string): string {
-  return text
+  return String(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
