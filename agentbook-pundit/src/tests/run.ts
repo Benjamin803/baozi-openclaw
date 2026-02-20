@@ -11,6 +11,7 @@ import { testContrarian } from "./test-contrarian.js";
 import { testContentGenerator } from "./test-content-generator.js";
 import { testAgentBookClient } from "./test-agentbook-client.js";
 import { testStrategiesIntegration } from "./test-strategies-integration.js";
+import { testIntegration } from "./test-integration.js";
 
 interface TestResult {
   name: string;
@@ -121,32 +122,43 @@ export function expect(actual: any) {
 }
 
 // Run all test suites
-console.log("🧪 AgentBook Pundit — Test Suite\n");
-console.log("═".repeat(50));
+async function main() {
+  console.log("🧪 AgentBook Pundit — Test Suite\n");
+  console.log("═".repeat(50));
 
-testHelpers();
-testFundamental();
-testStatistical();
-testContrarian();
-testContentGenerator();
-testAgentBookClient();
-testStrategiesIntegration();
+  // Unit tests (mocked data)
+  testHelpers();
+  testFundamental();
+  testStatistical();
+  testContrarian();
+  testContentGenerator();
+  testAgentBookClient();
+  testStrategiesIntegration();
 
-// Report
-console.log("\n" + "═".repeat(50));
-const passed = results.filter((r) => r.passed).length;
-const failed = results.filter((r) => !r.passed).length;
-const total = results.length;
+  // Integration tests (real API calls)
+  await testIntegration();
 
-console.log(`\n📊 Results: ${passed}/${total} passed, ${failed} failed\n`);
+  // Report
+  console.log("\n" + "═".repeat(50));
+  const passed = results.filter((r) => r.passed).length;
+  const failed = results.filter((r) => !r.passed).length;
+  const total = results.length;
 
-if (failed > 0) {
-  console.log("❌ Failed tests:");
-  for (const r of results.filter((r) => !r.passed)) {
-    console.log(`   • ${r.name}: ${r.error}`);
+  console.log(`\n📊 Results: ${passed}/${total} passed, ${failed} failed\n`);
+
+  if (failed > 0) {
+    console.log("❌ Failed tests:");
+    for (const r of results.filter((r) => !r.passed)) {
+      console.log(`   • ${r.name}: ${r.error}`);
+    }
+    process.exit(1);
+  } else {
+    console.log("✅ All tests passed!");
+    process.exit(0);
   }
-  process.exit(1);
-} else {
-  console.log("✅ All tests passed!");
-  process.exit(0);
 }
+
+main().catch((err) => {
+  console.error("Test runner failed:", err);
+  process.exit(1);
+});

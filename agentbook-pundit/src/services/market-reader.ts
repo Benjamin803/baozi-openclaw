@@ -1,30 +1,25 @@
 /**
  * Market Reader Service
  *
- * Reads market data from Baozi via MCP tools and the HTTP API.
+ * Reads market data from Baozi via direct handler imports from @baozi.bet/mcp-server.
  * Provides normalized market data for the analysis engine.
  */
-import { execMcpTool, execMcpToolHttp } from "./mcp-client.js";
-import type { Market, MarketOutcome, McpResult, Quote, RaceMarket } from "../types/index.js";
+import {
+  listMarkets as mcpListMarkets,
+  getMarket as mcpGetMarket,
+  listRaceMarkets as mcpListRaceMarkets,
+  getQuote as mcpGetQuote,
+  getRaceMarket as mcpGetRaceMarket,
+  getRaceQuote as mcpGetRaceQuote,
+} from "./mcp-client.js";
+import type { Market, MarketOutcome, Quote, RaceMarket } from "../types/index.js";
 
 export interface MarketReaderConfig {
-  useHttp?: boolean;
-  httpProxyUrl?: string;
+  // Config kept for API compatibility but no longer needs http/proxy settings
 }
 
 export class MarketReader {
-  private config: MarketReaderConfig;
-
-  constructor(config: MarketReaderConfig = {}) {
-    this.config = config;
-  }
-
-  private async callMcp(tool: string, params: Record<string, any>): Promise<McpResult> {
-    if (this.config.useHttp) {
-      return execMcpToolHttp(tool, params, this.config.httpProxyUrl);
-    }
-    return execMcpTool(tool, params);
-  }
+  constructor(_config: MarketReaderConfig = {}) {}
 
   /**
    * List active markets with optional filters.
@@ -35,19 +30,31 @@ export class MarketReader {
     query?: string;
     limit?: number;
   } = {}): Promise<Market[]> {
-    const result = await this.callMcp("list_markets", {
-      status: options.status || "active",
-      layer: options.layer || "all",
-      query: options.query,
-      limit: options.limit || 50,
-    });
+    try {
+      const rawMarkets = await mcpListMarkets(options.status || "active");
+      if (!rawMarkets || !Array.isArray(rawMarkets)) {
+        return [];
+      }
 
-    if (!result.success || !result.data) {
-      console.error("Failed to list markets:", result.error);
+      let markets = rawMarkets.map((m: any) => this.normalizeMarket(m));
+
+      // Apply client-side filters
+      if (options.layer && options.layer !== "all") {
+        markets = markets.filter((m) => m.layer === options.layer);
+      }
+      if (options.query) {
+        const q = options.query.toLowerCase();
+        markets = markets.filter((m) => m.question.toLowerCase().includes(q));
+      }
+      if (options.limit) {
+        markets = markets.slice(0, options.limit);
+      }
+
+      return markets;
+    } catch (err: any) {
+      console.error("Failed to list markets:", err.message);
       return [];
     }
-
-    return this.parseMarkets(result.data);
   }
 
   /**
@@ -57,34 +64,48 @@ export class MarketReader {
     status?: string;
     limit?: number;
   } = {}): Promise<RaceMarket[]> {
-    const result = await this.callMcp("list_race_markets", {
-      status: options.status || "active",
-      limit: options.limit || 20,
-    });
+    try {
+      const rawMarkets = await mcpListRaceMarkets(options.status || "active");
+      if (!rawMarkets || !Array.isArray(rawMarkets)) {
+        return [];
+      }
 
-    if (!result.success || !result.data) {
-      console.error("Failed to list race markets:", result.error);
+      let markets = rawMarkets.map((m: any) => this.normalizeRaceMarket(m));
+
+      if (options.limit) {
+        markets = markets.slice(0, options.limit);
+      }
+
+      return markets;
+    } catch (err: any) {
+      console.error("Failed to list race markets:", err.message);
       return [];
     }
-
-    return this.parseMarkets(result.data) as RaceMarket[];
   }
 
   /**
    * Get detailed quote for a market (implied probabilities + price impact).
    */
   async getQuote(marketPda: string, side: string, amount: number): Promise<Quote | null> {
-    const result = await this.callMcp("get_quote", {
-      market_pda: marketPda,
-      side,
-      amount,
-    });
+    try {
+      const raw = await mcpGetQuote(marketPda, side as "Yes" | "No", amount);
+      if (!raw || !raw.valid) {
+        return null;
+      }
 
-    if (!result.success || !result.data) {
+      return {
+        marketPda,
+        side,
+        amount,
+        avgPrice: raw.expectedPayoutSol > 0 ? amount / raw.expectedPayoutSol : 0,
+        priceImpact: Math.abs(raw.newYesPercent - raw.currentYesPercent),
+        estimatedShares: raw.expectedPayoutSol,
+        impliedProbability: raw.impliedOdds,
+      };
+    } catch (err: any) {
+      console.error("Failed to get quote:", err.message);
       return null;
     }
-
-    return this.parseQuote(result.data, marketPda, side, amount);
   }
 
   /**
@@ -95,33 +116,42 @@ export class MarketReader {
     outcomeIndex: number,
     amount: number
   ): Promise<Quote | null> {
-    const result = await this.callMcp("get_race_quote", {
-      market_pda: marketPda,
-      outcome_index: outcomeIndex,
-      amount,
-    });
+    try {
+      const raceMarket = await mcpGetRaceMarket(marketPda);
+      if (!raceMarket) return null;
 
-    if (!result.success || !result.data) {
+      const raw = mcpGetRaceQuote(raceMarket, outcomeIndex, amount);
+      if (!raw || !raw.valid) {
+        return null;
+      }
+
+      return {
+        marketPda,
+        side: `outcome_${outcomeIndex}`,
+        amount,
+        avgPrice: raw.expectedPayoutSol > 0 ? amount / raw.expectedPayoutSol : 0,
+        priceImpact: 0,
+        estimatedShares: raw.expectedPayoutSol,
+        impliedProbability: raw.impliedOdds,
+      };
+    } catch (err: any) {
+      console.error("Failed to get race quote:", err.message);
       return null;
     }
-
-    return this.parseQuote(result.data, marketPda, `outcome_${outcomeIndex}`, amount);
   }
 
   /**
    * Get market details by PDA.
    */
   async getMarketDetails(marketPda: string): Promise<Market | null> {
-    const result = await this.callMcp("get_market", {
-      market_pda: marketPda,
-    });
-
-    if (!result.success || !result.data) {
+    try {
+      const raw = await mcpGetMarket(marketPda);
+      if (!raw) return null;
+      return this.normalizeMarket(raw);
+    } catch (err: any) {
+      console.error("Failed to get market details:", err.message);
       return null;
     }
-
-    const markets = this.parseMarkets(result.data);
-    return markets[0] || null;
   }
 
   /**
@@ -142,34 +172,29 @@ export class MarketReader {
   }
 
   /**
-   * Parse raw MCP data into typed Market objects.
+   * Normalize a raw MCP Market object into our typed Market.
    */
-  private parseMarkets(data: any): Market[] {
-    // MCP returns content array with text items
-    const text = this.extractText(data);
-    if (!text) return [];
-
-    try {
-      // Try direct JSON parse
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        return parsed.map((m: any) => this.normalizeMarket(m));
-      }
-      if (parsed.markets && Array.isArray(parsed.markets)) {
-        return parsed.markets.map((m: any) => this.normalizeMarket(m));
-      }
-      // Single market
-      return [this.normalizeMarket(parsed)];
-    } catch {
-      // If not JSON, try to extract market data from text
-      return this.parseMarketsFromText(text);
-    }
-  }
-
   private normalizeMarket(raw: any): Market {
     const outcomes: MarketOutcome[] = [];
 
-    if (raw.outcomes && Array.isArray(raw.outcomes)) {
+    // @baozi.bet/mcp-server returns yesPoolSol/noPoolSol directly
+    if (raw.yesPoolSol !== undefined && raw.noPoolSol !== undefined) {
+      const total = (raw.yesPoolSol || 0) + (raw.noPoolSol || 0);
+      outcomes.push(
+        {
+          index: 0,
+          label: "Yes",
+          probability: raw.yesPercent !== undefined ? raw.yesPercent / 100 : (total > 0 ? raw.yesPoolSol / total : 0.5),
+          pool: raw.yesPoolSol,
+        },
+        {
+          index: 1,
+          label: "No",
+          probability: raw.noPercent !== undefined ? raw.noPercent / 100 : (total > 0 ? raw.noPoolSol / total : 0.5),
+          pool: raw.noPoolSol,
+        }
+      );
+    } else if (raw.outcomes && Array.isArray(raw.outcomes)) {
       for (let i = 0; i < raw.outcomes.length; i++) {
         const o = raw.outcomes[i];
         outcomes.push({
@@ -179,22 +204,6 @@ export class MarketReader {
           pool: o.pool || o.pool_amount || 0,
         });
       }
-    } else if (raw.yes_pool !== undefined && raw.no_pool !== undefined) {
-      const total = (raw.yes_pool || 0) + (raw.no_pool || 0);
-      outcomes.push(
-        {
-          index: 0,
-          label: "Yes",
-          probability: total > 0 ? raw.yes_pool / total : 0.5,
-          pool: raw.yes_pool,
-        },
-        {
-          index: 1,
-          label: "No",
-          probability: total > 0 ? raw.no_pool / total : 0.5,
-          pool: raw.no_pool,
-        }
-      );
     } else {
       outcomes.push(
         { index: 0, label: "Yes", probability: 0.5, pool: 0 },
@@ -202,65 +211,82 @@ export class MarketReader {
       );
     }
 
-    const totalPool = outcomes.reduce((sum, o) => sum + o.pool, 0);
+    const totalPool = raw.totalPoolSol ?? outcomes.reduce((sum, o) => sum + o.pool, 0);
+
+    // Map layer from MCP format
+    const layerMap: Record<string, "official" | "lab" | "private"> = {
+      Official: "official",
+      Lab: "lab",
+      Private: "private",
+    };
+
+    // Map status from MCP format
+    const statusMap: Record<string, "active" | "closed" | "resolved"> = {
+      Active: "active",
+      Closed: "closed",
+      Resolved: "resolved",
+    };
 
     return {
-      id: raw.id || raw.market_id || raw.pda || "",
-      pda: raw.pda || raw.market_pda || raw.id || "",
+      id: raw.marketId || raw.publicKey || "",
+      pda: raw.publicKey || raw.pda || "",
       question: raw.question || raw.title || "",
-      status: raw.status || "active",
-      layer: raw.layer || "official",
+      status: statusMap[raw.status] || (raw.status?.toLowerCase() as any) || "active",
+      layer: layerMap[raw.layer] || (raw.layer?.toLowerCase() as any) || "official",
       category: raw.category || raw.tag || undefined,
-      closingTime: raw.closing_time || raw.closingTime || raw.close_time || "",
-      createdAt: raw.created_at || raw.createdAt || "",
+      closingTime: raw.closingTime || raw.close_time || "",
+      createdAt: raw.createdAt || raw.created_at || "",
       pool: { total: totalPool, outcomes: outcomes.map((o) => o.pool) },
       outcomes,
       volume: raw.volume || totalPool,
-      creator: raw.creator || raw.creator_wallet || undefined,
+      creator: raw.creator || undefined,
     };
   }
 
-  private parseQuote(data: any, marketPda: string, side: string, amount: number): Quote {
-    const text = this.extractText(data);
-    let parsed: any = {};
-    try {
-      parsed = text ? JSON.parse(text) : data;
-    } catch {
-      parsed = {};
-    }
+  /**
+   * Normalize a raw MCP RaceMarket object.
+   */
+  private normalizeRaceMarket(raw: any): RaceMarket {
+    const outcomes: MarketOutcome[] = [];
 
-    return {
-      marketPda,
-      side,
-      amount,
-      avgPrice: parsed.avg_price || parsed.averagePrice || 0,
-      priceImpact: parsed.price_impact || parsed.priceImpact || 0,
-      estimatedShares: parsed.estimated_shares || parsed.estimatedShares || 0,
-      impliedProbability: parsed.implied_probability || parsed.impliedProbability || 0,
-    };
-  }
-
-  private extractText(data: any): string | null {
-    if (typeof data === "string") return data;
-    if (data?.content && Array.isArray(data.content)) {
-      const textItems = data.content.filter((c: any) => c.type === "text");
-      return textItems.map((c: any) => c.text).join("\n") || null;
-    }
-    if (data?.text) return data.text;
-    return JSON.stringify(data);
-  }
-
-  private parseMarketsFromText(text: string): Market[] {
-    // Fallback: try to find JSON embedded in text output
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      try {
-        const arr = JSON.parse(jsonMatch[0]);
-        return arr.map((m: any) => this.normalizeMarket(m));
-      } catch {
-        // no-op
+    if (raw.outcomes && Array.isArray(raw.outcomes)) {
+      for (let i = 0; i < raw.outcomes.length; i++) {
+        const o = raw.outcomes[i];
+        outcomes.push({
+          index: o.index ?? i,
+          label: o.label || `Outcome ${i}`,
+          probability: o.percent !== undefined ? o.percent / 100 : 0,
+          pool: o.poolSol || 0,
+        });
       }
     }
-    return [];
+
+    const totalPool = raw.totalPoolSol ?? outcomes.reduce((sum, o) => sum + o.pool, 0);
+
+    const layerMap: Record<string, "official" | "lab" | "private"> = {
+      Official: "official",
+      Lab: "lab",
+      Private: "private",
+    };
+
+    const statusMap: Record<string, "active" | "closed" | "resolved"> = {
+      Active: "active",
+      Closed: "closed",
+      Resolved: "resolved",
+    };
+
+    return {
+      id: raw.marketId || raw.publicKey || "",
+      pda: raw.publicKey || raw.pda || "",
+      question: raw.question || "",
+      status: statusMap[raw.status] || (raw.status?.toLowerCase() as any) || "active",
+      layer: layerMap[raw.layer] || (raw.layer?.toLowerCase() as any) || "official",
+      closingTime: raw.closingTime || "",
+      createdAt: raw.createdAt || "",
+      pool: { total: totalPool, outcomes: outcomes.map((o) => o.pool) },
+      outcomes,
+      volume: totalPool,
+      creator: raw.creator || undefined,
+    };
   }
 }

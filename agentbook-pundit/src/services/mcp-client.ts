@@ -1,131 +1,60 @@
 /**
  * MCP Client for @baozi.bet/mcp-server
  *
- * Executes MCP tools via JSON-RPC over stdio to interact with
- * the Baozi prediction market protocol on Solana.
+ * Imports handlers DIRECTLY from the installed @baozi.bet/mcp-server package
+ * instead of spawning a subprocess. This is faster, more reliable, and testable.
  */
-import { spawn } from "node:child_process";
+import { listMarkets, getMarket } from "@baozi.bet/mcp-server/dist/handlers/markets.js";
+import { listRaceMarkets, getRaceMarket, getRaceQuote } from "@baozi.bet/mcp-server/dist/handlers/race-markets.js";
+import { getQuote } from "@baozi.bet/mcp-server/dist/handlers/quote.js";
+import { PROGRAM_ID } from "@baozi.bet/mcp-server/dist/config.js";
 import type { McpResult } from "../types/index.js";
 
-const MCP_INIT_DELAY = 2000;
-const MCP_CALL_DELAY = 1000;
-const MCP_TIMEOUT = 60000;
+// Re-export the direct handlers for use in other modules
+export { listMarkets, getMarket, listRaceMarkets, getRaceMarket, getRaceQuote, getQuote, PROGRAM_ID };
 
 /**
- * Execute an MCP tool via the @baozi.bet/mcp-server subprocess
+ * Execute an MCP tool by name using direct handler imports.
+ * Maps tool names to the corresponding handler functions.
  */
 export async function execMcpTool(
   toolName: string,
   params: Record<string, any>
 ): Promise<McpResult> {
-  return new Promise((resolve) => {
-    const jsonRpcRequest = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: toolName,
-        arguments: params,
-      },
-    });
-
-    const proc = spawn("npx", ["@baozi.bet/mcp-server"], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        SOLANA_RPC_URL: process.env.SOLANA_RPC_URL || "",
-        SOLANA_PRIVATE_KEY: process.env.SOLANA_PRIVATE_KEY || "",
-      },
-      timeout: MCP_TIMEOUT,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    // Initialize MCP connection, then send tool call
-    setTimeout(() => {
-      const initRequest = JSON.stringify({
-        jsonrpc: "2.0",
-        id: 0,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "agentbook-pundit", version: "1.0.0" },
-        },
-      });
-      proc.stdin.write(initRequest + "\n");
-
-      setTimeout(() => {
-        proc.stdin.write(jsonRpcRequest + "\n");
-        proc.stdin.end();
-      }, MCP_CALL_DELAY);
-    }, MCP_INIT_DELAY);
-
-    proc.on("close", (code) => {
-      if (code !== 0 && !stdout) {
-        resolve({
-          success: false,
-          error: `MCP process exited with code ${code}: ${stderr}`,
-        });
-        return;
-      }
-      try {
-        const lines = stdout.split("\n").filter(Boolean);
-        for (let i = lines.length - 1; i >= 0; i--) {
-          try {
-            const parsed = JSON.parse(lines[i]);
-            if (parsed.id === 1) {
-              if (parsed.error) {
-                resolve({
-                  success: false,
-                  error: parsed.error.message || JSON.stringify(parsed.error),
-                });
-              } else {
-                resolve({ success: true, data: parsed.result });
-              }
-              return;
-            }
-          } catch {
-            continue;
-          }
-        }
-        resolve({ success: false, error: "No matching response in MCP output" });
-      } catch (err) {
-        resolve({ success: false, error: `Failed to parse MCP response: ${err}` });
-      }
-    });
-
-    proc.on("error", (err) => {
-      resolve({ success: false, error: `MCP process error: ${err.message}` });
-    });
-  });
-}
-
-/**
- * Execute MCP tool via HTTP proxy (alternative)
- */
-export async function execMcpToolHttp(
-  toolName: string,
-  params: Record<string, any>,
-  proxyUrl = "http://localhost:3100"
-): Promise<McpResult> {
   try {
-    const response = await fetch(`${proxyUrl}/mcp/tool`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tool: toolName, arguments: params }),
-    });
-    const data = await response.json();
-    return { success: true, data };
+    switch (toolName) {
+      case "list_markets": {
+        const markets = await listMarkets(params.status);
+        return { success: true, data: markets };
+      }
+      case "get_market": {
+        const market = await getMarket(params.market_pda || params.publicKey);
+        return { success: true, data: market };
+      }
+      case "list_race_markets": {
+        const raceMarkets = await listRaceMarkets(params.status);
+        return { success: true, data: raceMarkets };
+      }
+      case "get_race_market": {
+        const raceMarket = await getRaceMarket(params.market_pda || params.publicKey);
+        return { success: true, data: raceMarket };
+      }
+      case "get_quote": {
+        const quote = await getQuote(params.market_pda, params.side, params.amount);
+        return { success: true, data: quote };
+      }
+      case "get_race_quote": {
+        const raceMarketData = await getRaceMarket(params.market_pda);
+        if (!raceMarketData) {
+          return { success: false, error: "Race market not found" };
+        }
+        const raceQuote = getRaceQuote(raceMarketData, params.outcome_index, params.amount);
+        return { success: true, data: raceQuote };
+      }
+      default:
+        return { success: false, error: `Unknown tool: ${toolName}` };
+    }
   } catch (err: any) {
-    return { success: false, error: `HTTP MCP call failed: ${err.message}` };
+    return { success: false, error: `MCP handler error: ${err.message}` };
   }
 }

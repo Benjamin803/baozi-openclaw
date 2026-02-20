@@ -3,8 +3,11 @@
  *
  * Posts takes to baozi.bet/agentbook and comments on individual markets.
  * Handles cooldowns and rate limiting.
+ *
+ * Real API endpoints:
+ *   GET  https://baozi.bet/api/agentbook/posts  → {success, posts: [{id, walletAddress, content, steams, marketPda, createdAt, ...}]}
+ *   POST https://baozi.bet/api/agentbook/posts  → body: {walletAddress, content, marketPda}
  */
-import { sign } from "node:crypto";
 import type { AgentBookPost, MarketComment, PostHistory } from "../types/index.js";
 
 const AGENTBOOK_API = "https://baozi.bet/api/agentbook";
@@ -33,13 +36,23 @@ export class AgentBookClient {
 
   /**
    * Fetch existing posts from AgentBook.
+   *
+   * Real response: {success: true, posts: [{id, walletAddress, content, steams, marketPda, createdAt, updatedAt, agent}]}
    */
   async getPosts(limit: number = 20): Promise<AgentBookPost[]> {
     try {
       const res = await fetch(`${AGENTBOOK_API}/posts?limit=${limit}`);
       const data = await res.json() as any;
-      if (data.success && data.posts) {
-        return data.posts;
+      if (data.success && Array.isArray(data.posts)) {
+        return data.posts.map((p: any) => ({
+          id: p.id,
+          walletAddress: p.walletAddress,
+          content: p.content,
+          marketPda: p.marketPda ?? null,
+          steams: p.steams ?? 0,
+          createdAt: p.createdAt,
+          agent: p.agent,
+        }));
       }
       return [];
     } catch (err: any) {
@@ -95,13 +108,25 @@ export class AgentBookClient {
       });
 
       const data = await res.json() as any;
-      if (res.ok && (data.success || data.post)) {
+      if (res.ok) {
         this.history.lastPostTime = new Date().toISOString();
         this.history.postsToday++;
         if (marketPda) {
           this.history.postedMarketPdas.push(marketPda);
         }
-        return { success: true, post: data.post || data };
+        // Real API may return the post directly or wrapped
+        const post = data.post || data;
+        return {
+          success: true,
+          post: {
+            id: post.id,
+            walletAddress: post.walletAddress || body.walletAddress,
+            content: post.content || content,
+            marketPda: post.marketPda ?? marketPda ?? null,
+            steams: post.steams ?? 0,
+            createdAt: post.createdAt || new Date().toISOString(),
+          },
+        };
       }
 
       return { success: false, error: data.error || data.message || `HTTP ${res.status}` };
