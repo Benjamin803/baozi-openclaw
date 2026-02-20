@@ -4,11 +4,12 @@
 import type { ArenaReport, MarketArenaView, AgentStats } from "../api/arena.js";
 
 function escHtml(s: string): string {
-  return s
+  return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function pnlClass(pnl: number): string {
@@ -26,8 +27,8 @@ function truncate(s: string, max: number): string {
 }
 
 function streakHtml(streak: number): string {
-  if (streak > 0) return `<span class="streak-win">🔥${streak}W</span>`;
-  if (streak < 0) return `<span class="streak-loss">❄${Math.abs(streak)}L</span>`;
+  if (streak > 0) return `<span class="streak-win">${escHtml(String(streak))}W</span>`;
+  if (streak < 0) return `<span class="streak-loss">${escHtml(String(Math.abs(streak)))}L</span>`;
   return `<span class="streak-none">—</span>`;
 }
 
@@ -38,7 +39,8 @@ function resultBadge(isWinner: boolean | null): string {
 }
 
 function progressBarHtml(percent: number): string {
-  return `<div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>`;
+  const safe = Math.max(0, Math.min(100, percent));
+  return `<div class="progress-bar"><div class="progress-fill" style="width:${safe.toFixed(1)}%"></div></div>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,14 +52,14 @@ function leaderboardHtml(agents: AgentStats[]): string {
     .map((a, i) => {
       const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
       return `<tr>
-        <td class="rank">${medal}</td>
+        <td class="rank">${escHtml(String(medal))}</td>
         <td class="agent-name" title="${escHtml(a.wallet)}">${escHtml(truncate(a.name, 20))}</td>
-        <td class="num">${a.totalWagered.toFixed(2)}</td>
-        <td class="num ${pnlClass(a.pnl)}">${pnlStr(a.pnl)}</td>
-        <td class="num">${a.accuracy.toFixed(0)}%</td>
-        <td class="num">${a.wins}/${a.losses}</td>
+        <td class="num">${escHtml(a.totalWagered.toFixed(2))}</td>
+        <td class="num ${escHtml(pnlClass(a.pnl))}">${escHtml(pnlStr(a.pnl))}</td>
+        <td class="num">${escHtml(a.accuracy.toFixed(0))}%</td>
+        <td class="num">${escHtml(String(a.wins))}/${escHtml(String(a.losses))}</td>
         <td>${streakHtml(a.streak)}</td>
-        <td class="num">${a.openPositions}</td>
+        <td class="num">${escHtml(String(a.openPositions))}</td>
       </tr>`;
     })
     .join("\n");
@@ -99,20 +101,22 @@ function marketCardHtml(m: MarketArenaView): string {
     const np = m.noPercent || 50;
     oddsHtml = `
       <div class="odds-bar">
-        <span class="yes-pct">YES ${yp.toFixed(1)}%</span>
+        <span class="yes-pct">YES ${escHtml(yp.toFixed(1))}%</span>
         ${progressBarHtml(yp)}
-        <span class="no-pct">${np.toFixed(1)}% NO</span>
+        <span class="no-pct">${escHtml(np.toFixed(1))}% NO</span>
       </div>`;
     if (m.winningOutcome) {
-      oddsHtml += `<div class="winner-badge ${m.winningOutcome === "Yes" ? "winner-yes" : "winner-no"}">Winner: ${m.winningOutcome}</div>`;
+      const winClass = m.winningOutcome === "Yes" ? "winner-yes" : "winner-no";
+      oddsHtml += `<div class="winner-badge ${winClass}">Winner: ${escHtml(m.winningOutcome)}</div>`;
     }
   } else if (m.type === "race" && m.outcomes) {
     oddsHtml = `<div class="race-outcomes">`;
     for (let i = 0; i < m.outcomes.length; i++) {
       const o = m.outcomes[i];
       const isWinner = m.winnerIndex === i;
-      oddsHtml += `<div class="race-outcome ${isWinner ? "race-winner" : ""}">
-        ${isWinner ? "★ " : ""}${escHtml(truncate(o.label, 25))} — ${o.pool.toFixed(2)} SOL (${o.percent.toFixed(1)}%)
+      const winnerClass = isWinner ? "race-winner" : "";
+      oddsHtml += `<div class="race-outcome ${winnerClass}">
+        ${isWinner ? "★ " : ""}${escHtml(truncate(o.label, 25))} — ${escHtml(o.pool.toFixed(2))} SOL (${escHtml(o.percent.toFixed(1))}%)
         ${progressBarHtml(o.percent)}
       </div>`;
     }
@@ -121,21 +125,23 @@ function marketCardHtml(m: MarketArenaView): string {
 
   const agentRows = m.agents
     .map(
-      (a) =>
-        `<tr>
+      (a) => {
+        const sideClass = a.side.toLowerCase().replace(/[^a-z]/g, "");
+        return `<tr>
           <td class="agent-name" title="${escHtml(a.wallet)}">${escHtml(truncate(a.name, 18))}</td>
-          <td class="side-${a.side.toLowerCase().replace(/[^a-z]/g, "")}">${escHtml(a.side)}</td>
-          <td class="num">${a.amountSol.toFixed(4)}</td>
-          <td class="num ${pnlClass(a.pnlSol)}">${pnlStr(a.pnlSol)}</td>
+          <td class="side-${escHtml(sideClass)}">${escHtml(a.side)}</td>
+          <td class="num">${escHtml(a.amountSol.toFixed(4))}</td>
+          <td class="num ${escHtml(pnlClass(a.pnlSol))}">${escHtml(pnlStr(a.pnlSol))}</td>
           <td>${resultBadge(a.isWinner)}</td>
-        </tr>`
+        </tr>`;
+      }
     )
     .join("\n");
 
   return `<div class="market-card">
     <div class="market-header">
-      <span class="status-badge ${statusClass}">${m.status}</span>
-      <span class="pool">${m.totalPoolSol.toFixed(2)} SOL</span>
+      <span class="status-badge ${statusClass}">${escHtml(m.status)}</span>
+      <span class="pool">${escHtml(m.totalPoolSol.toFixed(2))} SOL</span>
     </div>
     <h3 class="market-question">${escHtml(truncate(m.question, 80))}</h3>
     ${oddsHtml}
@@ -146,8 +152,8 @@ function marketCardHtml(m: MarketArenaView): string {
       <tbody>${agentRows}</tbody>
     </table>
     <div class="market-footer">
-      <a href="https://solscan.io/account/${m.pda}" target="_blank" rel="noopener">View on Solscan ↗</a>
-      │ Market #${m.marketId}
+      <a href="https://solscan.io/account/${encodeURIComponent(m.pda)}" target="_blank" rel="noopener">View on Solscan ↗</a>
+      │ Market #${escHtml(String(m.marketId))}
     </div>
   </div>`;
 }
@@ -166,8 +172,8 @@ export function generateHtml(report: ArenaReport): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agent Arena — Baozi Prediction Markets</title>
-<meta name="description" content="Live AI agent betting competition on Baozi prediction markets. ${report.totalAgents} agents competing across ${report.totalMarkets} markets.">
-<meta property="og:title" content="Agent Arena — ${report.totalAgents} agents, ${report.totalVolume.toFixed(1)} SOL volume">
+<meta name="description" content="Live AI agent betting competition on Baozi prediction markets. ${escHtml(String(report.totalAgents))} agents competing across ${escHtml(String(report.totalMarkets))} markets.">
+<meta property="og:title" content="Agent Arena — ${escHtml(String(report.totalAgents))} agents, ${escHtml(report.totalVolume.toFixed(1))} SOL volume">
 <meta property="og:description" content="Watch AI agents compete on prediction markets in real-time">
 <meta property="og:type" content="website">
 <style>
@@ -243,18 +249,18 @@ export function generateHtml(report: ArenaReport): string {
 <div class="container">
   <h1>⚔ Agent Arena</h1>
   <div class="stats-bar">
-    <span><strong>${report.totalAgents}</strong> agents</span>
-    <span><strong>${report.totalMarkets}</strong> markets</span>
-    <span><strong>${report.totalVolume.toFixed(2)}</strong> SOL volume</span>
-    <span>${report.fetchedAt}</span>
+    <span><strong>${escHtml(String(report.totalAgents))}</strong> agents</span>
+    <span><strong>${escHtml(String(report.totalMarkets))}</strong> markets</span>
+    <span><strong>${escHtml(report.totalVolume.toFixed(2))}</strong> SOL volume</span>
+    <span>${escHtml(report.fetchedAt)}</span>
   </div>
 
   <h2>Leaderboard</h2>
   ${leaderboardHtml(report.leaderboard)}
 
-  ${report.activeMarkets.length > 0 ? `<h2>Live Markets (${report.activeMarkets.length})</h2>${activeCards}` : ""}
+  ${report.activeMarkets.length > 0 ? `<h2>Live Markets (${escHtml(String(report.activeMarkets.length))})</h2>${activeCards}` : ""}
 
-  ${report.resolvedMarkets.length > 0 ? `<h2>Resolved Markets (${report.resolvedMarkets.length})</h2>${resolvedCards}` : ""}
+  ${report.resolvedMarkets.length > 0 ? `<h2>Resolved Markets (${escHtml(String(report.resolvedMarkets.length))})</h2>${resolvedCards}` : ""}
 
   <div class="footer">
     <p>Powered by <a href="https://baozi.bet" target="_blank">Baozi</a> prediction markets on Solana</p>

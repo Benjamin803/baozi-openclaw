@@ -194,7 +194,8 @@ function decodeMarket(data: Buffer, pubkey: PublicKey): Market | null {
       hasBets,
       isBettingOpen,
     };
-  } catch {
+  } catch (e) {
+    console.error(`decodeMarket failed for ${pubkey.toBase58()}:`, e);
     return null;
   }
 }
@@ -264,7 +265,8 @@ function decodePosition(data: Buffer, pubkey: PublicKey): UserPosition | null {
       claimed,
       referredBy,
     };
-  } catch {
+  } catch (e) {
+    console.error(`decodePosition failed for ${pubkey.toBase58()}:`, e);
     return null;
   }
 }
@@ -401,7 +403,8 @@ function decodeRaceMarket(data: Buffer, pubkey: PublicKey): RaceMarket | null {
       layer: LAYER_NAMES[layerCode] || "Unknown",
       creator: creator.toBase58(),
     };
-  } catch {
+  } catch (e) {
+    console.error(`decodeRaceMarket failed for ${pubkey.toBase58()}:`, e);
     return null;
   }
 }
@@ -454,7 +457,8 @@ function decodeRacePosition(data: Buffer, pubkey: PublicKey): RacePosition | nul
       totalAmountSol: round4(total),
       claimed,
     };
-  } catch {
+  } catch (e) {
+    console.error(`decodeRacePosition failed for ${pubkey.toBase58()}:`, e);
     return null;
   }
 }
@@ -499,7 +503,8 @@ function decodeCreatorProfile(data: Buffer, pubkey: PublicKey): CreatorProfile |
       name,
       marketsCreated,
     };
-  } catch {
+  } catch (e) {
+    console.error(`decodeCreatorProfile failed for ${pubkey.toBase58()}:`, e);
     return null;
   }
 }
