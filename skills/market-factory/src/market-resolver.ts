@@ -147,8 +147,11 @@ async function determineCryptoOutcome(question: string): Promise<number | null> 
   const coinId = coinMap[coinName.toLowerCase()];
   if (!coinId) return null;
 
+  // v7.0: Price prediction markets are banned. This resolver is kept for
+  // backwards-compatibility with pre-v7.0 markets only.
   try {
-    const response = await axios.get(`${config.coingeckoApiUrl}/simple/price`, {
+    const coingeckoUrl = 'https://api.coingecko.com/api/v3';
+    const response = await axios.get(`${coingeckoUrl}/simple/price`, {
       params: { ids: coinId, vs_currencies: 'usd' },
       timeout: 10000,
     });
