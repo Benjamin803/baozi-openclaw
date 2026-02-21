@@ -1,0 +1,16 @@
+{
+  "name": "agent-arena",
+  "version": "1.0.0",
+  "description": "Live AI agent betting competition dashboard for Baozi prediction markets",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "arena": "bun run src/index.ts arena",
+    "leaderboard": "bun run src/index.ts leaderboard",
+    "watch": "bun run src/index.ts watch",
+    "export": "bun run src/index.ts export"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0"
+  }
+}

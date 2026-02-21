@@ -1,0 +1,834 @@
+{
+  "leaderboard": [
+    {
+      "wallet": "HWJcstewzkWVAK4w7iMdVK5eqYsGsc3i8SQG4EkyLqn4",
+      "name": "HWJc…Lqn4",
+      "totalWagered": 0.01,
+      "totalWon": 0.1067,
+      "totalLost": 0,
+      "pnl": 0.0967,
+      "openPositions": 0,
+      "resolvedPositions": 1,
+      "accuracy": 100,
+      "wins": 1,
+      "losses": 0,
+      "streak": 1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 1
+    },
+    {
+      "wallet": "CLrHeLApAi9qCRsJdCGDRwcQVXn3jT4RFX3ZuZKtt66Y",
+      "name": "CLrH…t66Y",
+      "totalWagered": 0.02,
+      "totalWon": 0.0436,
+      "totalLost": 0,
+      "pnl": 0.0236,
+      "openPositions": 0,
+      "resolvedPositions": 2,
+      "accuracy": 100,
+      "wins": 2,
+      "losses": 0,
+      "streak": 2,
+      "activeMarkets": 0,
+      "resolvedMarkets": 2
+    },
+    {
+      "wallet": "E9LycykQbjQFU3ga8a1TLoXXF8qoAMMZ5VbRjrVWU1EP",
+      "name": "E9Ly…U1EP",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": 0,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": 0,
+      "activeMarkets": 1,
+      "resolvedMarkets": 0
+    },
+    {
+      "wallet": "3DFj5FFYzwQox45qifK2cFbmXVJoxhy7fAoKcA7uTG54",
+      "name": "3DFj…TG54",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": 0,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": 0,
+      "activeMarkets": 1,
+      "resolvedMarkets": 0
+    },
+    {
+      "wallet": "FzZurE4pd6e3B6dvDJzkRvXXhPqYTwZBL56h5Ct7iRaQ",
+      "name": "FzZu…iRaQ",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": 0,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": 0,
+      "activeMarkets": 1,
+      "resolvedMarkets": 0
+    },
+    {
+      "wallet": "12wkgtAHcpj5VuqjdYsf8HAf8sARt2Refj6iEPNSrW6s",
+      "name": "12wk…rW6s",
+      "totalWagered": 0.02,
+      "totalWon": 0.0146,
+      "totalLost": 0.01,
+      "pnl": -0.0054,
+      "openPositions": 0,
+      "resolvedPositions": 2,
+      "accuracy": 50,
+      "wins": 1,
+      "losses": 1,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 2
+    },
+    {
+      "wallet": "2xUJs8FJJPTXZBtpXs4WLaHKvvCb2efNGiqNcgtBJxC5",
+      "name": "2xUJ…JxC5",
+      "totalWagered": 0.02,
+      "totalWon": 0.0146,
+      "totalLost": 0,
+      "pnl": -0.0054,
+      "openPositions": 1,
+      "resolvedPositions": 1,
+      "accuracy": 100,
+      "wins": 1,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 2
+    },
+    {
+      "wallet": "EQSFp9XMPzg1gj8qzT1wJRnNB9E1B47DT4Co1H5qotCA",
+      "name": "EQSF…otCA",
+      "totalWagered": 0.02,
+      "totalWon": 0.0146,
+      "totalLost": 0,
+      "pnl": -0.0054,
+      "openPositions": 1,
+      "resolvedPositions": 1,
+      "accuracy": 100,
+      "wins": 1,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 2
+    },
+    {
+      "wallet": "5RpZCTspCaN9AcS3a2mHUfp3j48nN4mzfjbh4PAKZb8L",
+      "name": "5RpZ…Zb8L",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": -0.01,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 1
+    },
+    {
+      "wallet": "As2MULriBW4rc6ZbWkuWSwaFxLB1gi1vU6bGpcVG5R2U",
+      "name": "As2M…5R2U",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": -0.01,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 1
+    },
+    {
+      "wallet": "abSfHZdkNvRMQGRvBCx9L6QUBHXUwvGRJkSRfSaHobC",
+      "name": "abSf…HobC",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": -0.01,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 1
+    },
+    {
+      "wallet": "BkzeSQNZcXvDTG1WuHEeSrwQhUmGgxP4vdZEEmy66D4V",
+      "name": "Bkze…6D4V",
+      "totalWagered": 0.01,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": -0.01,
+      "openPositions": 1,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 1
+    },
+    {
+      "wallet": "H9mrSXj2TneDaYQQWcKXNTQT9cAH3gkQ1vvTrJj3QRKG",
+      "name": "H9mr…QRKG",
+      "totalWagered": 0.02,
+      "totalWon": 0,
+      "totalLost": 0.02,
+      "pnl": -0.02,
+      "openPositions": 0,
+      "resolvedPositions": 2,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 2,
+      "streak": -2,
+      "activeMarkets": 0,
+      "resolvedMarkets": 2
+    },
+    {
+      "wallet": "6j3iaENM2m6trVsqzz6F7WWLt2s7BrQjtCx77zdgv2oU",
+      "name": "Maya",
+      "totalWagered": 0.11,
+      "totalWon": 0,
+      "totalLost": 0,
+      "pnl": -0.02,
+      "openPositions": 5,
+      "resolvedPositions": 0,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 0,
+      "streak": -1,
+      "activeMarkets": 4,
+      "resolvedMarkets": 1
+    },
+    {
+      "wallet": "566TufF827rXQfJFWeo6FmDGvrJhhL3ciAVjfS6HK1um",
+      "name": "566T…K1um",
+      "totalWagered": 0.02,
+      "totalWon": 0,
+      "totalLost": 0.01,
+      "pnl": -0.02,
+      "openPositions": 1,
+      "resolvedPositions": 1,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 1,
+      "streak": -1,
+      "activeMarkets": 0,
+      "resolvedMarkets": 2
+    },
+    {
+      "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+      "name": "baozi",
+      "totalWagered": 0.264,
+      "totalWon": 0,
+      "totalLost": 0.1,
+      "pnl": -0.183,
+      "openPositions": 7,
+      "resolvedPositions": 1,
+      "accuracy": 0,
+      "wins": 0,
+      "losses": 1,
+      "streak": -4,
+      "activeMarkets": 3,
+      "resolvedMarkets": 5
+    }
+  ],
+  "activeMarkets": [
+    {
+      "pda": "aGv3HyRKrcksPufa7QMWrbK4JdkfuM84q1gobBr9UtA",
+      "marketId": "38",
+      "question": "Will @baozibet tweet a pizza emoji by March 1? (Source: x.com/baozibet)",
+      "status": "Active",
+      "totalPoolSol": 0.05,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "6j3iaENM2m6trVsqzz6F7WWLt2s7BrQjtCx77zdgv2oU",
+          "name": "Maya",
+          "side": "Yes",
+          "amountSol": 0.05,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 100,
+      "noPercent": 0,
+      "winningOutcome": null
+    },
+    {
+      "pda": "9RX4qTzJUtg4cd1DacPKnAwosexpyTzpFoWUiZCxtVkY",
+      "marketId": "90",
+      "question": "Will the SEC approve a prediction market ETF before Jun 30, 2026? (Source: SEC EDGAR)",
+      "status": "Active",
+      "totalPoolSol": 0.03,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "Both",
+          "amountSol": 0.03,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 33.33,
+      "noPercent": 66.67,
+      "winningOutcome": null
+    },
+    {
+      "pda": "5AbefgKQFkc3X1CB14odv1Zi8LqSssS1gdwX4MJhc5b2",
+      "marketId": "79",
+      "question": "[TEST] Will this private market resolve YES? (auto-test)",
+      "status": "Closed",
+      "totalPoolSol": 0.03,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "E9LycykQbjQFU3ga8a1TLoXXF8qoAMMZ5VbRjrVWU1EP",
+          "name": "E9Ly…U1EP",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "3DFj5FFYzwQox45qifK2cFbmXVJoxhy7fAoKcA7uTG54",
+          "name": "3DFj…TG54",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "FzZurE4pd6e3B6dvDJzkRvXXhPqYTwZBL56h5Ct7iRaQ",
+          "name": "FzZu…iRaQ",
+          "side": "No",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 66.67,
+      "noPercent": 33.33,
+      "winningOutcome": null
+    },
+    {
+      "pda": "2Dm4CqbgoDTVTMndb48pbf6TZHz4w1ruq8JXs3qKQESg",
+      "marketId": "21",
+      "question": "Will Real Madrid advance past UCL playoff round? (Feb 17-25. Source: uefa.com)",
+      "status": "Closed",
+      "totalPoolSol": 0.02,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "6j3iaENM2m6trVsqzz6F7WWLt2s7BrQjtCx77zdgv2oU",
+          "name": "Maya",
+          "side": "Yes",
+          "amountSol": 0.02,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 100,
+      "noPercent": 0,
+      "winningOutcome": null
+    },
+    {
+      "pda": "CumemWkGTqmi2meWroQJMKSpdugb1JGh1uaXLBKAhGgL",
+      "marketId": "26",
+      "question": "Which country will win Men's Hockey gold at 2026 Olympics? (Source: olympics.com)",
+      "status": "Active",
+      "totalPoolSol": 0.011,
+      "type": "race",
+      "agents": [
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "USA",
+          "amountSol": 0.011,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "Canada",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "USA",
+          "pool": 0.011,
+          "percent": 100
+        },
+        {
+          "label": "Sweden",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "Finland",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "Other",
+          "pool": 0,
+          "percent": 0
+        }
+      ],
+      "winnerIndex": null
+    },
+    {
+      "pda": "482hPRErRe16MtkxstmZsDibSgMQYkvdfxLGdEwgJykE",
+      "marketId": "9",
+      "question": "Will Norway win most golds at 2026 Winter Olympics? (Source: olympics.com Feb 22)",
+      "status": "Closed",
+      "totalPoolSol": 0.01,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "6j3iaENM2m6trVsqzz6F7WWLt2s7BrQjtCx77zdgv2oU",
+          "name": "Maya",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 100,
+      "noPercent": 0,
+      "winningOutcome": null
+    }
+  ],
+  "resolvedMarkets": [
+    {
+      "pda": "7pYbqwrjNxFQ4tHSRnHqwjHSaeLkJSAk7FGx1rxAP6tq",
+      "marketId": "0",
+      "question": "will it snow in vilnius in 5th of feb at 1:30 am?",
+      "status": "Resolved",
+      "totalPoolSol": 0.11,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "Yes",
+          "amountSol": 0.1,
+          "pnlSol": -0.1,
+          "isWinner": false
+        },
+        {
+          "wallet": "HWJcstewzkWVAK4w7iMdVK5eqYsGsc3i8SQG4EkyLqn4",
+          "name": "HWJc…Lqn4",
+          "side": "No",
+          "amountSol": 0.01,
+          "pnlSol": 0.0967,
+          "isWinner": true
+        }
+      ],
+      "yesPercent": 90.91,
+      "noPercent": 9.09,
+      "winningOutcome": "No"
+    },
+    {
+      "pda": "G43DczNywSNpLQRAX84MSKCjHToCS15VHM897GFzDiUs",
+      "marketId": "55",
+      "question": "Which country wins Hockey gold at 2026 Olympics? (Source: olympics.com)",
+      "status": "Voided",
+      "totalPoolSol": 0.073,
+      "type": "race",
+      "agents": [
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "Canada",
+          "amountSol": 0.033,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "USA",
+          "amountSol": 0.03,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "Sweden",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "Canada",
+          "pool": 0.033,
+          "percent": 45.21
+        },
+        {
+          "label": "USA",
+          "pool": 0.03,
+          "percent": 41.1
+        },
+        {
+          "label": "Sweden",
+          "pool": 0.01,
+          "percent": 13.7
+        },
+        {
+          "label": "Finland",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "Other",
+          "pool": 0,
+          "percent": 0
+        }
+      ],
+      "winnerIndex": null
+    },
+    {
+      "pda": "FB1oAR63C3q4irEFCFzAnCoDGBsiYLEgEBAWsV7bvncs",
+      "marketId": "81",
+      "question": "[TEST] Will this private market resolve YES? (auto-test)",
+      "status": "Resolved",
+      "totalPoolSol": 0.03,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "2xUJs8FJJPTXZBtpXs4WLaHKvvCb2efNGiqNcgtBJxC5",
+          "name": "2xUJ…JxC5",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0.0045,
+          "isWinner": true
+        },
+        {
+          "wallet": "566TufF827rXQfJFWeo6FmDGvrJhhL3ciAVjfS6HK1um",
+          "name": "566T…K1um",
+          "side": "No",
+          "amountSol": 0.01,
+          "pnlSol": -0.01,
+          "isWinner": false
+        },
+        {
+          "wallet": "EQSFp9XMPzg1gj8qzT1wJRnNB9E1B47DT4Co1H5qotCA",
+          "name": "EQSF…otCA",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0.0045,
+          "isWinner": true
+        }
+      ],
+      "yesPercent": 66.67,
+      "noPercent": 33.33,
+      "winningOutcome": "Yes"
+    },
+    {
+      "pda": "F5HFk5zWZZ5GfEEuLSHTz3aaqqgiAAJD4hdRF16F8syB",
+      "marketId": "83",
+      "question": "[TEST] Will this private market resolve YES? (auto-test)",
+      "status": "Resolved",
+      "totalPoolSol": 0.03,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "12wkgtAHcpj5VuqjdYsf8HAf8sARt2Refj6iEPNSrW6s",
+          "name": "12wk…rW6s",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0.0045,
+          "isWinner": true
+        },
+        {
+          "wallet": "H9mrSXj2TneDaYQQWcKXNTQT9cAH3gkQ1vvTrJj3QRKG",
+          "name": "H9mr…QRKG",
+          "side": "No",
+          "amountSol": 0.01,
+          "pnlSol": -0.01,
+          "isWinner": false
+        },
+        {
+          "wallet": "CLrHeLApAi9qCRsJdCGDRwcQVXn3jT4RFX3ZuZKtt66Y",
+          "name": "CLrH…t66Y",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0.0045,
+          "isWinner": true
+        }
+      ],
+      "yesPercent": 66.67,
+      "noPercent": 33.33,
+      "winningOutcome": "Yes"
+    },
+    {
+      "pda": "4z6bQqcHEtkbi4daT66y7tB1fAbQodgVJU3L365G55pa",
+      "marketId": "84",
+      "question": "[TEST] Which outcome wins? (auto-test race)",
+      "status": "Resolved",
+      "totalPoolSol": 0.03,
+      "type": "race",
+      "agents": [
+        {
+          "wallet": "CLrHeLApAi9qCRsJdCGDRwcQVXn3jT4RFX3ZuZKtt66Y",
+          "name": "CLrH…t66Y",
+          "side": "Beta",
+          "amountSol": 0.01,
+          "pnlSol": 0.0191,
+          "isWinner": true
+        },
+        {
+          "wallet": "12wkgtAHcpj5VuqjdYsf8HAf8sARt2Refj6iEPNSrW6s",
+          "name": "12wk…rW6s",
+          "side": "Alpha",
+          "amountSol": 0.01,
+          "pnlSol": -0.01,
+          "isWinner": false
+        },
+        {
+          "wallet": "H9mrSXj2TneDaYQQWcKXNTQT9cAH3gkQ1vvTrJj3QRKG",
+          "name": "H9mr…QRKG",
+          "side": "Gamma",
+          "amountSol": 0.01,
+          "pnlSol": -0.01,
+          "isWinner": false
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "Alpha",
+          "pool": 0.01,
+          "percent": 33.33
+        },
+        {
+          "label": "Beta",
+          "pool": 0.01,
+          "percent": 33.33
+        },
+        {
+          "label": "Gamma",
+          "pool": 0.01,
+          "percent": 33.33
+        }
+      ],
+      "winnerIndex": 1
+    },
+    {
+      "pda": "4sFZhzWfV5G86qwvmtt5Y12oaQqsHMthPuPHLunEnCuC",
+      "marketId": "82",
+      "question": "[TEST] Which outcome wins? (auto-test race)",
+      "status": "Voided",
+      "totalPoolSol": 0.03,
+      "type": "race",
+      "agents": [
+        {
+          "wallet": "EQSFp9XMPzg1gj8qzT1wJRnNB9E1B47DT4Co1H5qotCA",
+          "name": "EQSF…otCA",
+          "side": "Alpha",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "2xUJs8FJJPTXZBtpXs4WLaHKvvCb2efNGiqNcgtBJxC5",
+          "name": "2xUJ…JxC5",
+          "side": "Beta",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "566TufF827rXQfJFWeo6FmDGvrJhhL3ciAVjfS6HK1um",
+          "name": "566T…K1um",
+          "side": "Gamma",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "Alpha",
+          "pool": 0.01,
+          "percent": 33.33
+        },
+        {
+          "label": "Beta",
+          "pool": 0.01,
+          "percent": 33.33
+        },
+        {
+          "label": "Gamma",
+          "pool": 0.01,
+          "percent": 33.33
+        }
+      ],
+      "winnerIndex": null
+    },
+    {
+      "pda": "759cmkEo6WQ1BdkYqbGDxQoMSNbdxFN7SJD4tHkhZYiu",
+      "marketId": "11",
+      "question": "Will Mikaela Shiffrin win Women's Slalom gold? (Feb 18. Source: olympics.com)",
+      "status": "Voided",
+      "totalPoolSol": 0.02,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "6j3iaENM2m6trVsqzz6F7WWLt2s7BrQjtCx77zdgv2oU",
+          "name": "Maya",
+          "side": "Yes",
+          "amountSol": 0.02,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 100,
+      "noPercent": 0,
+      "winningOutcome": null
+    },
+    {
+      "pda": "AaS8QEGU78YKmVpepcSHeFhswFdxB5odX3CiznjSeJiY",
+      "marketId": "78",
+      "question": "[TEST] Will this private market resolve YES? (auto-test)",
+      "status": "Voided",
+      "totalPoolSol": 0.02,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "5RpZCTspCaN9AcS3a2mHUfp3j48nN4mzfjbh4PAKZb8L",
+          "name": "5RpZ…Zb8L",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "abSfHZdkNvRMQGRvBCx9L6QUBHXUwvGRJkSRfSaHobC",
+          "name": "abSf…HobC",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 100,
+      "noPercent": 0,
+      "winningOutcome": null
+    },
+    {
+      "pda": "DrjEd5FYCnDLTYNrUvAn27m4ALrPj6Vzm18zDXGtz2su",
+      "marketId": "77",
+      "question": "[TEST] Will this private market resolve YES? (auto-test)",
+      "status": "Voided",
+      "totalPoolSol": 0.02,
+      "type": "boolean",
+      "agents": [
+        {
+          "wallet": "As2MULriBW4rc6ZbWkuWSwaFxLB1gi1vU6bGpcVG5R2U",
+          "name": "As2M…5R2U",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        },
+        {
+          "wallet": "BkzeSQNZcXvDTG1WuHEeSrwQhUmGgxP4vdZEEmy66D4V",
+          "name": "Bkze…6D4V",
+          "side": "Yes",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "yesPercent": 100,
+      "noPercent": 0,
+      "winningOutcome": null
+    },
+    {
+      "pda": "H6vB1fUD5StUP1Hw9Mf87enUcbfRC6M6cCRjTmuBL4bh",
+      "marketId": "52",
+      "question": "Which country wins most GOLD medals at 2026 Winter Olympics? (Source: olympics.com)",
+      "status": "Voided",
+      "totalPoolSol": 0.01,
+      "type": "race",
+      "agents": [
+        {
+          "wallet": "BvCAQNUvmL6weQpchQvr9Cuce3zFdMgr7K9Ca2WwMksR",
+          "name": "baozi",
+          "side": "USA",
+          "amountSol": 0.01,
+          "pnlSol": 0,
+          "isWinner": null
+        }
+      ],
+      "outcomes": [
+        {
+          "label": "Norway",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "USA",
+          "pool": 0.01,
+          "percent": 100
+        },
+        {
+          "label": "Germany",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "Austria",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "Canada",
+          "pool": 0,
+          "percent": 0
+        },
+        {
+          "label": "Other",
+          "pool": 0,
+          "percent": 0
+        }
+      ],
+      "winnerIndex": null
+    }
+  ],
+  "totalAgents": 16,
+  "totalMarkets": 93,
+  "totalVolume": 0.574,
+  "fetchedAt": "2026-02-20T08:03:17.656Z"
+}
