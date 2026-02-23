@@ -1,123 +1,45 @@
-#!/usr/bin/env bun
-// CLI: Display reputation dashboard
-//
-// Usage:
-//   bun run dashboard                    — Full leaderboard
-//   bun run dashboard -- --caller NAME   — Single caller details
-//   bun run dashboard -- --stats         — Global stats
+import { loadDB, rankCallers } from "../storage.ts";
 
-import { initDb, getAllCallers, getCaller, getCallerCalls, getStats, getRecentCalls } from "../tracker/db.ts";
-import { formatReputation, generateLeaderboard, calculateReputation, timeWeightedAccuracy } from "../tracker/reputation.ts";
+const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" };
 
-function parseArgs(): { caller?: string; stats?: boolean } {
-  const args = process.argv.slice(2);
-  let caller: string | undefined;
-  let stats = false;
+const db = loadDB();
+const ranked = rankCallers(db);
+const openCalls = db.calls.filter(c => !c.resolvedAt).length;
+const resolvedCalls = db.calls.filter(c => c.resolvedAt).length;
 
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case "--caller":
-      case "-c":
-        caller = args[++i];
-        break;
-      case "--stats":
-      case "-s":
-        stats = true;
-        break;
-    }
-  }
+console.log(`\n${C.cyan}${C.bold}╔══════════════════════════════════════════════════════╗`);
+console.log(`║         📊 CALLS TRACKER — REPUTATION BOARD         ║`);
+console.log(`╚══════════════════════════════════════════════════════╝${C.reset}\n`);
+console.log(`${C.dim}Total calls: ${db.calls.length} · Open: ${openCalls} · Resolved: ${resolvedCalls} · Callers: ${ranked.length}${C.reset}\n`);
 
-  return { caller, stats };
+if (ranked.length === 0) {
+  console.log(`${C.dim}No calls yet. Run: bun run call -- "BTC will hit $110k by March" --caller your-name${C.reset}\n`);
+  process.exit(0);
 }
 
-function formatCallRow(call: ReturnType<typeof getRecentCalls>[0]): string {
-  const status = call.resolved
-    ? (call.outcome === "WIN" ? "W" : call.outcome === "LOSS" ? "L" : "V")
-    : "?";
-  const date = call.createdAt.toISOString().slice(0, 10);
-  const question = call.question.length > 50 ? call.question.slice(0, 47) + "..." : call.question;
-  const pda = call.marketPda ? call.marketPda.slice(0, 8) + "..." : "pending";
+const header = `${"#".padEnd(3)} ${"Caller".padEnd(16)} ${"Hit%".padStart(5)} ${"W/L".padStart(5)} ${"PnL".padStart(8)} ${"Calls".padStart(6)} ${"Streak".padStart(7)}`;
+console.log(`${C.cyan}${header}${C.reset}`);
+console.log("─".repeat(55));
 
-  return `  [${status}] ${date} | ${call.betAmount.toFixed(2)} SOL ${call.betSide} | ${pda} | ${question}`;
+for (const p of ranked) {
+  const rank = p.rank === 1 ? "🥇" : p.rank === 2 ? "🥈" : p.rank === 3 ? "🥉" : `${String(p.rank).padStart(2)}.`;
+  const name = p.name.slice(0, 16).padEnd(16);
+  const hit = `${p.hitRate}%`.padStart(5);
+  const wl = `${p.correct}/${p.wrong}`.padStart(5);
+  const pnlVal = p.pnl > 0 ? `${C.green}+${p.pnl.toFixed(2)}${C.reset}` : p.pnl < 0 ? `${C.red}${p.pnl.toFixed(2)}${C.reset}` : `${C.dim}0.00${C.reset}`;
+  const calls = String(p.totalCalls).padStart(6);
+  const streak = p.streak > 0 ? `${C.green}+${p.streak}🔥${C.reset}` : p.streak < 0 ? `${C.red}${p.streak}❄️${C.reset}` : `${C.dim}—${C.reset}`;
+  console.log(`${rank} ${name} ${hit} ${wl} ${pnlVal.padEnd(8)} ${calls} ${streak}`);
 }
 
-async function main() {
-  const { caller, stats } = parseArgs();
-
-  initDb();
-
-  if (stats) {
-    const s = getStats();
-    console.log("=== CALLS TRACKER — Global Stats ===\n");
-    console.log(`  Callers:        ${s.totalCallers}`);
-    console.log(`  Total calls:    ${s.totalCalls}`);
-    console.log(`  Resolved:       ${s.resolvedCalls}`);
-    console.log(`  SOL wagered:    ${s.totalSolWagered.toFixed(2)}`);
-    console.log(`  Avg hit rate:   ${(s.avgHitRate * 100).toFixed(1)}%`);
-    console.log();
-
-    // Recent calls
-    const recent = getRecentCalls(10);
-    if (recent.length > 0) {
-      console.log("--- Recent Calls ---");
-      for (const call of recent) {
-        console.log(formatCallRow(call));
-      }
-    }
-    return;
-  }
-
-  if (caller) {
-    const callerId = caller.toLowerCase().replace(/\s+/g, "-");
-    const callerObj = getCaller(callerId);
-    if (!callerObj) {
-      console.error(`Caller "${caller}" not found`);
-      process.exit(1);
-    }
-
-    console.log("=== CALLS TRACKER — Caller Profile ===\n");
-    console.log(formatReputation(callerObj));
-    console.log();
-
-    const rep = calculateReputation(callerObj);
-    console.log("--- Score Breakdown ---");
-    console.log(`  Raw hit rate:      ${(rep.details.rawHitRate * 100).toFixed(1)}%`);
-    console.log(`  Bayesian score:    ${(rep.details.bayesianScore * 100).toFixed(1)}%`);
-    console.log(`  Streak bonus:      ${rep.details.streakBonus >= 0 ? "+" : ""}${(rep.details.streakBonus * 100).toFixed(1)}%`);
-    console.log(`  Volume bonus:      +${(rep.details.volumeBonus * 100).toFixed(1)}%`);
-    console.log(`  Profit factor:     ${rep.details.profitFactor >= 0 ? "+" : ""}${rep.details.profitFactor.toFixed(2)}x`);
-    console.log();
-
-    const twa = timeWeightedAccuracy(callerId);
-    console.log(`  Time-weighted acc: ${(twa * 100).toFixed(1)}% (recent calls weighted higher)`);
-    console.log();
-
-    // Call history
-    const calls = getCallerCalls(callerId);
-    if (calls.length > 0) {
-      console.log("--- Call History ---");
-      for (const call of calls.slice(0, 20)) {
-        console.log(formatCallRow(call));
-      }
-      if (calls.length > 20) {
-        console.log(`  ... and ${calls.length - 20} more`);
-      }
-    }
-    return;
-  }
-
-  // Default: leaderboard
-  const allCallers = getAllCallers();
-  console.log(generateLeaderboard(allCallers));
-
-  if (allCallers.length > 0) {
-    console.log();
-    const s = getStats();
-    console.log(`Global: ${s.totalCalls} calls, ${s.totalSolWagered.toFixed(2)} SOL wagered, ${(s.avgHitRate * 100).toFixed(1)}% avg hit rate`);
+// Recent calls
+if (db.calls.length > 0) {
+  console.log(`\n${C.cyan}${C.bold}Recent Calls:${C.reset}`);
+  for (const call of db.calls.slice(-5).reverse()) {
+    const status = call.resolvedAt
+      ? (call.resolution === "resolved_correct" ? `${C.green}✓ CORRECT${C.reset}` : `${C.red}✗ WRONG${C.reset}`)
+      : `${C.yellow}⏳ OPEN${C.reset}`;
+    console.log(`  [${call.id}] ${call.question.slice(0, 50)}... ${status}`);
   }
 }
-
-main().catch((err) => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});
+console.log();

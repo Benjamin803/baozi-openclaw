@@ -1,110 +1,39 @@
-#!/usr/bin/env bun
-// CLI: Track callers — view or register new callers
-//
-// Usage:
-//   bun run track                                     — List all callers
-//   bun run track -- --name "CryptoKing" --wallet ABC — Register new caller
-//   bun run track -- --name "CryptoKing"              — View caller details
+import { loadDB } from "../storage.ts";
 
-import { initDb, upsertCaller, getAllCallers, getCaller, getCallerCalls } from "../tracker/db.ts";
-import { formatReputation, calculateReputation } from "../tracker/reputation.ts";
+const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" };
 
-function parseArgs(): { name?: string; wallet?: string } {
-  const args = process.argv.slice(2);
-  let name: string | undefined;
-  let wallet: string | undefined;
+const args = process.argv.slice(2);
+const id = args[args.indexOf("--id") + 1] ?? null;
+const caller = args[args.indexOf("--caller") + 1] ?? null;
 
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
-      case "--name":
-      case "-n":
-        name = args[++i];
-        break;
-      case "--wallet":
-      case "-w":
-        wallet = args[++i];
-        break;
-    }
-  }
+const db = loadDB();
 
-  return { name, wallet };
+const calls = id
+  ? db.calls.filter(c => c.id === id)
+  : caller
+  ? db.calls.filter(c => c.caller === caller)
+  : db.calls;
+
+console.log(`\n${C.cyan}${C.bold}=== CALLS TRACKER ===${C.reset}`);
+console.log(`${C.dim}Showing ${calls.length} call(s)${C.reset}\n`);
+
+if (calls.length === 0) {
+  console.log(`${C.dim}No calls found. Try: bun run call -- "Your prediction" --caller yourname${C.reset}\n`);
+  process.exit(0);
 }
 
-async function main() {
-  const { name, wallet } = parseArgs();
+for (const call of calls) {
+  const status = call.resolvedAt
+    ? call.resolution === "resolved_correct"
+      ? `${C.green}✓ CORRECT${C.reset}`
+      : `${C.red}✗ WRONG${C.reset}`
+    : `${C.yellow}⏳ OPEN${C.reset}`;
 
-  initDb();
-
-  if (name) {
-    const callerId = name.toLowerCase().replace(/\s+/g, "-");
-
-    if (wallet) {
-      // Register or update
-      upsertCaller(callerId, name, wallet);
-      console.log(`Registered/updated caller: ${name} (${callerId})`);
-      if (wallet) console.log(`Wallet: ${wallet}`);
-    }
-
-    // Show details
-    const caller = getCaller(callerId);
-    if (!caller) {
-      console.log(`Caller "${name}" not found. Use --wallet to register.`);
-      return;
-    }
-
-    console.log("=== Caller Profile ===\n");
-    console.log(formatReputation(caller));
-
-    const calls = getCallerCalls(callerId);
-    if (calls.length > 0) {
-      console.log(`\n--- Call History (${calls.length} total) ---`);
-
-      // Group by category
-      const byCategory = new Map<string, number>();
-      for (const c of calls) {
-        byCategory.set(c.category, (byCategory.get(c.category) || 0) + 1);
-      }
-      console.log(`  Categories: ${[...byCategory].map(([k, v]) => `${k}(${v})`).join(", ")}`);
-
-      // Win/loss by category
-      const resolved = calls.filter(c => c.resolved && c.outcome !== "VOID");
-      if (resolved.length > 0) {
-        const byCatOutcome = new Map<string, { wins: number; losses: number }>();
-        for (const c of resolved) {
-          const entry = byCatOutcome.get(c.category) || { wins: 0, losses: 0 };
-          if (c.outcome === "WIN") entry.wins++;
-          else entry.losses++;
-          byCatOutcome.set(c.category, entry);
-        }
-        console.log("  By category:");
-        for (const [cat, { wins, losses }] of byCatOutcome) {
-          const rate = ((wins / (wins + losses)) * 100).toFixed(0);
-          console.log(`    ${cat}: ${wins}W ${losses}L (${rate}%)`);
-        }
-      }
-    }
-    return;
-  }
-
-  // List all callers
-  const callers = getAllCallers();
-  if (callers.length === 0) {
-    console.log("No callers registered yet.");
-    console.log("Register: bun run track -- --name NAME --wallet SOLANA_ADDRESS");
-    return;
-  }
-
-  console.log("=== All Callers ===\n");
-  for (const caller of callers) {
-    const rep = calculateReputation(caller);
-    const pnl = caller.totalWon - caller.totalLost;
-    console.log(
-      `  ${caller.name.padEnd(20)} ${String(rep.score).padEnd(5)} ${rep.tier.padEnd(12)} ${String(caller.totalCalls).padEnd(3)} calls  ${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} SOL`
-    );
-  }
+  console.log(`${C.bold}[${call.id}]${C.reset} ${status}`);
+  console.log(`  ${C.dim}Caller:${C.reset}  ${call.caller}`);
+  console.log(`  ${C.dim}Call:${C.reset}    ${call.prediction}`);
+  console.log(`  ${C.dim}Question:${C.reset} ${call.question}`);
+  console.log(`  ${C.dim}Bet:${C.reset}     ${call.bet} SOL · Close: ${call.closeTime.slice(0, 10)}`);
+  if (call.outcome) console.log(`  ${C.dim}Outcome:${C.reset} ${call.outcome}`);
+  console.log();
 }
-
-main().catch((err) => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});

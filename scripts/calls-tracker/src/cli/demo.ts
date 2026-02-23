@@ -1,159 +1,75 @@
-#!/usr/bin/env bun
-// Demo: Create 5 example calls, simulate resolutions, show dashboard
-//
-// Usage: bun run demo
-// This generates the proof required by the bounty acceptance criteria
+import { randomUUID } from "crypto";
+import { loadDB, saveDB, addCall, resolveCall, rankCallers } from "../storage.ts";
+import type { Call } from "../types.ts";
 
-import { createCall } from "../parser/prediction.ts";
-import { validateCall } from "../market/validator.ts";
-import { buildShareCardUrl } from "../market/creator.ts";
-import { initDb, upsertCaller, saveCall, resolveCall, getTopCallers, getStats, getRecentCalls } from "../tracker/db.ts";
-import { generateLeaderboard, formatReputation, calculateReputation } from "../tracker/reputation.ts";
+const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" };
 
-const DEMO_CALLS = [
-  {
-    caller: "CryptoKing",
-    prediction: "BTC will hit $110k by March 15",
-    bet: 0.5,
-    outcome: "WIN" as const,
-  },
-  {
-    caller: "CryptoKing",
-    prediction: "ETH will exceed $4000 by end of Q1",
-    bet: 0.3,
-    outcome: "WIN" as const,
-  },
-  {
-    caller: "CryptoKing",
-    prediction: "SOL will reach $300 by March 1",
-    bet: 0.2,
-    outcome: "LOSS" as const,
-  },
-  {
-    caller: "SportsGuru",
-    prediction: "Lakers will beat Celtics in Game 7",
-    bet: 1.0,
-    outcome: "WIN" as const,
-  },
-  {
-    caller: "SportsGuru",
-    prediction: "Chiefs will win the Super Bowl",
-    bet: 0.5,
-    outcome: "LOSS" as const,
-  },
-  {
-    caller: "MacroTrader",
-    prediction: "NVDA will drop below $700 by April",
-    bet: 0.8,
-    outcome: "LOSS" as const,
-  },
-  {
-    caller: "MacroTrader",
-    prediction: "Bitcoin dominance above 60% by March",
-    bet: 0.4,
-    outcome: "WIN" as const,
-  },
-  {
-    caller: "MacroTrader",
-    prediction: "Interest rates will be cut this quarter",
-    bet: 0.6,
-    outcome: "WIN" as const,
-  },
+const DEMO_CALLS: Omit<Call, "id" | "createdAt">[] = [
+  { caller: "CryptoSage", prediction: "BTC will hit $110k by March 1", question: "Will BTC exceed $110k by March 1, 2026?", closeTime: "2026-03-01T00:00:00Z", bet: 0.5 },
+  { caller: "BearBot", prediction: "Ethereum will drop below $2k", question: "Will ETH drop below $2,000 by March 15?", closeTime: "2026-03-15T00:00:00Z", bet: 0.3 },
+  { caller: "CryptoSage", prediction: "Seahawks will win Super Bowl", question: "Will Seattle Seahawks win Super Bowl LX?", closeTime: "2026-02-09T23:59:00Z", bet: 0.2 },
+  { caller: "AlphaHunter", prediction: "Fed will cut rates in March", question: "Will the Fed cut rates at the March 2026 FOMC meeting?", closeTime: "2026-03-20T00:00:00Z", bet: 0.4 },
+  { caller: "BearBot", prediction: "Arsenal will win the Premier League", question: "Will Arsenal win the 2025-26 Premier League title?", closeTime: "2026-05-24T00:00:00Z", bet: 0.1 },
+  { caller: "AlphaHunter", prediction: "Gold will hit $3000", question: "Will gold (XAU) reach $3,000/oz by April 1, 2026?", closeTime: "2026-04-01T00:00:00Z", bet: 0.3 },
 ];
 
-async function main() {
-  console.log("=== CALLS TRACKER — Demo ===\n");
-  console.log("Creating example calls and simulating resolutions...\n");
+const RESOLUTIONS: Array<{ caller: string; question: string; outcome: "YES" | "NO" }> = [
+  { caller: "CryptoSage", question: "Will Seattle Seahawks win Super Bowl LX?", outcome: "YES" },
+  { caller: "BearBot", question: "Will ETH drop below $2,000 by March 15?", outcome: "NO" },
+];
 
-  // Use a fresh demo DB
-  const db = initDb("./calls-tracker-demo.db");
+console.log(`\n${C.cyan}${C.bold}╔═════════════════════════════════════════════╗`);
+console.log(`║      CALLS TRACKER — FULL DEMO              ║`);
+console.log(`║  Turn predictions into reputation scores    ║`);
+console.log(`╚═════════════════════════════════════════════╝${C.reset}\n`);
 
-  // Register callers
-  upsertCaller("cryptoking", "CryptoKing", "CKwallet123...abc");
-  upsertCaller("sportsguru", "SportsGuru", "SGwallet456...def");
-  upsertCaller("macrotrader", "MacroTrader", "MTwallet789...ghi");
+// Reset and build fresh demo DB
+const db = loadDB();
+const demoIds: Record<string, string> = {};
 
-  let callNum = 0;
-  for (const demo of DEMO_CALLS) {
-    callNum++;
-    console.log(`--- Call #${callNum}: ${demo.caller} ---`);
-
-    // Create call
-    const call = createCall(demo.prediction, demo.caller, undefined, demo.bet);
-    console.log(`  Raw:      "${demo.prediction}"`);
-    console.log(`  Parsed:   ${call.question}`);
-    console.log(`  Category: ${call.category} | Type: ${call.marketType}`);
-    console.log(`  Bet:      ${call.betAmount} SOL on ${call.betSide}`);
-
-    // Validate
-    const validation = await validateCall(call);
-    if (validation.approved) {
-      console.log(`  Status:   APPROVED`);
-    } else {
-      console.log(`  Status:   REJECTED (${validation.violations.length} violations)`);
-      for (const v of validation.violations) {
-        console.log(`    [${v.severity}] ${v.message}`);
-      }
-    }
-
-    // Simulate market creation (dry run)
-    call.marketPda = `Demo${callNum}PDA_${call.id}`;
-    call.betTxSignature = `demo_bet_tx_${call.id}`;
-    call.shareCardUrl = buildShareCardUrl(call.marketPda);
-    console.log(`  Share:    ${call.shareCardUrl}`);
-
-    saveCall(call);
-
-    // Resolve
-    resolveCall(call.id, demo.outcome);
-    console.log(`  Outcome:  ${demo.outcome}`);
-    console.log();
-  }
-
-  // Show results
-  console.log("\n" + "=".repeat(85));
-  console.log("=== FINAL RESULTS ===");
-  console.log("=".repeat(85) + "\n");
-
-  // Leaderboard
-  const callers = getTopCallers(20);
-  console.log(generateLeaderboard(callers));
-
-  // Individual profiles
-  console.log("\n--- Individual Profiles ---\n");
-  for (const caller of callers) {
-    console.log(formatReputation(caller));
-    const rep = calculateReputation(caller);
-    console.log(`   Confidence: Bayesian=${(rep.details.bayesianScore * 100).toFixed(1)}%, Streak=${rep.details.streakBonus >= 0 ? "+" : ""}${(rep.details.streakBonus * 100).toFixed(1)}%, Volume=+${(rep.details.volumeBonus * 100).toFixed(1)}%`);
-    console.log();
-  }
-
-  // Global stats
-  const stats = getStats();
-  console.log("--- Global Stats ---");
-  console.log(`  Total callers:  ${stats.totalCallers}`);
-  console.log(`  Total calls:    ${stats.totalCalls}`);
-  console.log(`  Resolved:       ${stats.resolvedCalls}`);
-  console.log(`  SOL wagered:    ${stats.totalSolWagered.toFixed(2)}`);
-  console.log(`  Avg hit rate:   ${(stats.avgHitRate * 100).toFixed(1)}%`);
-
-  // Recent calls
-  console.log("\n--- All Calls ---");
-  const recent = getRecentCalls(20);
-  for (const call of recent) {
-    const status = call.outcome === "WIN" ? "W" : call.outcome === "LOSS" ? "L" : "?";
-    console.log(`  [${status}] ${call.callerId.padEnd(15)} ${call.betAmount.toFixed(1)} SOL ${call.betSide.padEnd(3)} | ${call.question.slice(0, 55)}`);
-  }
-
-  console.log("\n=== Demo Complete ===");
-  console.log("Run 'bun run dashboard' for live leaderboard");
-  console.log("Run 'bun run call -- -c NAME -p PREDICTION' to make real calls");
-
-  // Clean up demo DB
-  try { require("fs").unlinkSync("./calls-tracker-demo.db"); } catch {}
+console.log(`${C.bold}Step 1: Recording predictions...${C.reset}\n`);
+for (const c of DEMO_CALLS) {
+  const call: Call = { ...c, id: randomUUID().slice(0, 8), createdAt: new Date().toISOString() };
+  demoIds[`${c.caller}-${c.question.slice(0, 20)}`] = call.id;
+  addCall(db, call);
+  console.log(`  ${C.dim}[${call.id}]${C.reset} ${call.caller}: "${call.prediction.slice(0, 45)}..." · ${call.bet} SOL`);
 }
 
-main().catch((err) => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});
+console.log(`\n${C.bold}Step 2: Resolving completed markets...${C.reset}\n`);
+for (const r of RESOLUTIONS) {
+  const call = db.calls.find(c => c.caller === r.caller && c.question.includes(r.question.slice(5, 25)));
+  if (call) {
+    call.resolution = r.outcome === "YES" ? "resolved_correct" : "resolved_wrong";
+    call.outcome = r.outcome;
+    call.resolvedAt = new Date().toISOString();
+    const profile = db.callers[r.caller];
+    if (profile) {
+      r.outcome === "YES" ? profile.correct++ : profile.wrong++;
+      const t = profile.correct + profile.wrong;
+      profile.hitRate = Math.round((profile.correct / t) * 100);
+      profile.pnl += r.outcome === "YES" ? call.bet * 0.9 : -call.bet;
+      profile.streak = r.outcome === "YES" ? Math.max(0, profile.streak) + 1 : Math.min(0, profile.streak) - 1;
+    }
+    const icon = r.outcome === "YES" ? `${C.green}✓ CORRECT${C.reset}` : `${C.red}✗ WRONG${C.reset}`;
+    console.log(`  ${r.caller}: "${r.question.slice(0, 40)}..." → ${icon}`);
+  }
+}
+
+saveDB(db);
+
+console.log(`\n${C.bold}Step 3: Reputation scoreboard${C.reset}\n`);
+const ranked = rankCallers(db);
+const hdr = `${"#".padEnd(3)} ${"Caller".padEnd(13)} ${"Hit%".padStart(5)} ${"W/L".padStart(5)} ${"PnL (SOL)".padStart(10)} ${"Open".padStart(5)}`;
+console.log(`${C.cyan}${hdr}${C.reset}`);
+console.log("─".repeat(48));
+for (const p of ranked) {
+  const rank = p.rank === 1 ? "🥇" : p.rank === 2 ? "🥈" : p.rank === 3 ? "🥉" : `${String(p.rank).padStart(2)}.`;
+  const name = p.name.slice(0, 13).padEnd(13);
+  const hit = `${p.hitRate}%`.padStart(5);
+  const wl = `${p.correct}/${p.wrong}`.padStart(5);
+  const pnl = p.pnl > 0 ? `${C.green}+${p.pnl.toFixed(3)}${C.reset}` : `${C.red}${p.pnl.toFixed(3)}${C.reset}`;
+  const open = String(p.totalCalls - p.correct - p.wrong).padStart(5);
+  console.log(`${rank} ${name} ${hit} ${wl} ${pnl.padEnd(10)} ${open}`);
+}
+
+console.log(`\n${C.dim}Demo complete. Run 'bun run dashboard' to see live tracker.${C.reset}\n`);
