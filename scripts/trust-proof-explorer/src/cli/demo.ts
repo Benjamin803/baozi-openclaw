@@ -1,76 +1,41 @@
-#!/usr/bin/env bun
-// Demo — Full showcase of the Trust Proof Explorer
-//
-// Usage: bun run demo
-
-import { fetchProofs, calculateStats, solscanUrl, tierDescription } from "../api/proofs.ts";
-import { renderBatch, renderStats, renderComparison, generateHTML } from "../dashboard/renderer.ts";
+import { fetchProofs, computeStats } from "../api/proofs.ts";
+import { renderProof, renderStats, renderComparison, generateHTML } from "../dashboard/renderer.ts";
 import { writeFileSync } from "fs";
 
-async function main() {
-  console.log("=== TRUST PROOF EXPLORER — Full Demo ===\n");
-  console.log("Fetching live resolution proofs from Baozi API...\n");
+console.log("\x1b[36m\x1b[1m");
+console.log("╔══════════════════════════════════════════════════════════════╗");
+console.log("║        TRUST PROOF EXPLORER — FULL DEMO                     ║");
+console.log("║        Every resolution has receipts.                        ║");
+console.log("╚══════════════════════════════════════════════════════════════╝");
+console.log("\x1b[0m");
 
-  const proofs = await fetchProofs();
-  const stats = calculateStats(proofs);
+console.log("\x1b[2mFetching live data from baozi.bet...\x1b[0m\n");
+const { proofs, oracle } = await fetchProofs();
+const stats = computeStats(proofs);
 
-  // 1. Show 3 proof batches as required by acceptance criteria
-  console.log("--- Resolution Proofs (first 3 batches) ---");
-  for (const batch of proofs.slice(0, 3)) {
-    console.log(renderBatch(batch));
-  }
+console.log(`\x1b[32m✓ Fetched ${proofs.length} proof batches, ${stats.totalMarkets} resolved markets\x1b[0m\n`);
 
-  // 2. Oracle stats
-  console.log(renderStats(stats));
+// Stats
+console.log(renderStats(stats, oracle));
 
-  // 3. Trust comparison
-  console.log(renderComparison());
-
-  // 4. Source index
-  console.log("\n=== EVIDENCE SOURCES ===\n");
-  const allSources = new Set<string>();
-  for (const batch of proofs) {
-    for (const market of batch.markets) {
-      allSources.add(market.source);
-    }
-  }
-  let i = 0;
-  for (const source of allSources) {
-    i++;
-    console.log(`  ${i}. ${source}`);
-  }
-
-  // 5. All PDAs with Solscan links
-  console.log("\n=== ON-CHAIN VERIFICATION ===\n");
-  let j = 0;
-  for (const batch of proofs) {
-    for (const market of batch.markets) {
-      j++;
-      console.log(`  ${j}. ${market.pda}`);
-      console.log(`     ${solscanUrl(market.pda)}`);
-      console.log(`     ${market.question.slice(0, 60)}`);
-    }
-  }
-
-  // 6. Export HTML dashboard
-  const html = generateHTML(proofs, stats);
-  writeFileSync("trust-proof-explorer.html", html);
-  console.log(`\n=== HTML Dashboard exported to trust-proof-explorer.html ===`);
-
-  // 7. Summary
-  console.log("\n=== DEMO SUMMARY ===");
-  console.log(`  Proof batches:      ${stats.totalBatches}`);
-  console.log(`  Markets resolved:   ${stats.totalMarkets}`);
-  console.log(`  Categories:         ${Object.keys(stats.byCategory).length}`);
-  console.log(`  Unique sources:     ${stats.uniqueSources.length}`);
-  console.log(`  Trust score:        100% (0 disputes, 0 overturned)`);
-  console.log(`  Date range:         ${stats.dateRange.earliest} to ${stats.dateRange.latest}`);
+// Show first 3 proofs
+console.log("\n\x1b[36m\x1b[1m=== SAMPLE RESOLUTION PROOFS ===\x1b[0m\n");
+for (const proof of proofs.slice(0, 3)) {
+  console.log(renderProof(proof));
   console.log();
-  console.log("All proofs are verifiable on-chain via Solscan.");
-  console.log("Program: FWyTPzm5cfJwRKzfkscxozatSxF6Qu78JQovQUwKPruJ");
 }
 
-main().catch((err) => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});
+if (proofs.length > 3) {
+  console.log(`\x1b[2m... and ${proofs.length - 3} more proof batches. Run 'bun run explorer' to browse all.\x1b[0m\n`);
+}
+
+// Comparison
+console.log(renderComparison());
+
+// Export HTML
+const html = generateHTML(proofs, stats, oracle);
+const outPath = "trust-proof-explorer.html";
+writeFileSync(outPath, html, "utf8");
+
+console.log(`\n\x1b[32m✓ HTML dashboard exported → ${outPath}\x1b[0m`);
+console.log("\x1b[2mOpen in browser: open trust-proof-explorer.html\x1b[0m\n");

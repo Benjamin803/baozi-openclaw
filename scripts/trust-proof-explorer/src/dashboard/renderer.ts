@@ -1,292 +1,268 @@
-// Dashboard Renderer — Terminal + HTML output for proof explorer
+import type { Proof, ProofStats, OracleInfo } from "../api/proofs.ts";
 
-import type { ProofBatch, MarketResolution, OracleStats } from "../api/proofs.ts";
-import { solscanUrl, tierDescription } from "../api/proofs.ts";
-
-// Box-drawing characters for terminal UI
-const BOX = {
-  tl: "┌", tr: "┐", bl: "└", br: "┘",
-  h: "─", v: "│", t: "├", b: "┤",
-  cross: "┼", hd: "┬", hu: "┴",
+// ANSI colors
+const C = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  cyan: "\x1b[36m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  dim: "\x1b[2m",
+  white: "\x1b[97m",
 };
 
-// Render a single market resolution
-export function renderMarket(market: MarketResolution, index: number): string {
-  const outcomeIcon = market.outcome === "YES" ? "[YES]" : market.outcome === "NO" ? "[NO]" : "[VOID]";
-  const solscan = solscanUrl(market.pda);
+const W = 65;
 
-  return [
-    `  ${BOX.t}${BOX.h} Market #${index + 1}: ${market.question}`,
-    `  ${BOX.v}  Outcome: ${outcomeIcon} ${market.outcome}`,
-    `  ${BOX.v}  Evidence: ${market.evidence}`,
-    `  ${BOX.v}  Source: ${market.source}`,
-    `  ${BOX.v}  PDA: ${market.pda}`,
-    `  ${BOX.bl}  Solscan: ${solscan}`,
-  ].join("\n");
+function line(char = "─", width = W): string {
+  return char.repeat(width);
 }
 
-// Render a proof batch
-export function renderBatch(batch: ProofBatch): string {
-  const tier = tierDescription(batch.tier);
-  const header = [
-    "",
-    `${BOX.tl}${"".padEnd(75, BOX.h)}${BOX.tr}`,
-    `${BOX.v}  ${batch.title.padEnd(73)}${BOX.v}`,
-    `${BOX.v}  Date: ${batch.date} | Layer: ${batch.layer} | Category: ${batch.category}`.padEnd(76) + BOX.v,
-    `${BOX.v}  Tier ${batch.tier}: ${tier.name} (${tier.method.slice(0, 50)}...)`.padEnd(76) + BOX.v,
-    `${BOX.v}  Markets resolved: ${batch.markets.length} | Resolution speed: ${tier.speed}`.padEnd(76) + BOX.v,
-    `${BOX.t}${"".padEnd(75, BOX.h)}${BOX.b}`,
-  ];
-
-  const markets = batch.markets.map((m, i) => renderMarket(m, i));
-
-  return [...header, ...markets, `${BOX.bl}${"".padEnd(75, BOX.h)}${BOX.br}`].join("\n");
+function box(label: string, value: string): string {
+  return `  ${C.dim}${label.padEnd(24)}${C.reset}${value}`;
 }
 
-// Render oracle stats
-export function renderStats(stats: OracleStats): string {
-  const lines = [
-    "",
-    "=== ORACLE STATS ===",
-    "",
-    `  Total proof batches:    ${stats.totalBatches}`,
-    `  Total markets resolved: ${stats.totalMarkets}`,
-    `  Avg per batch:          ${stats.avgMarketsPerBatch.toFixed(1)}`,
-    `  Date range:             ${stats.dateRange.earliest} to ${stats.dateRange.latest}`,
-    `  Unique sources:         ${stats.uniqueSources.length}`,
-    "",
-    "  By Tier:",
-  ];
+function bar(count: number, max: number, width = 20): string {
+  const filled = max > 0 ? Math.round((count / max) * width) : 0;
+  return "█".repeat(filled) + "░".repeat(width - filled);
+}
 
+export function renderProof(proof: Proof): string {
+  const tierNames: Record<number, string> = {
+    1: "Trustless",
+    2: "Verified",
+    3: "AI Research",
+  };
+  const tierName = tierNames[proof.tier] ?? `Tier ${proof.tier}`;
+
+  const lines: string[] = [];
+  lines.push(`${C.cyan}${C.bold}┌${"─".repeat(W - 2)}┐${C.reset}`);
+  lines.push(
+    `${C.cyan}│${C.reset} ${C.bold}${proof.title.padEnd(W - 4)}${C.reset} ${C.cyan}│${C.reset}`
+  );
+  lines.push(`${C.cyan}├${"─".repeat(W - 2)}┤${C.reset}`);
+  lines.push(
+    `${C.cyan}│${C.reset}  ${C.dim}Tier ${proof.tier} (${tierName}) · ${proof.layer} · ${proof.category} · ${proof.date}${C.reset}`
+  );
+  lines.push(`${C.cyan}│${C.reset}  ${C.dim}Resolved by: ${proof.resolvedBy}${C.reset}`);
+  lines.push(`${C.cyan}│${C.reset}`);
+
+  for (const m of proof.markets) {
+    const outcomeColor = m.outcome === "YES" ? C.green : C.red;
+    lines.push(
+      `${C.cyan}│${C.reset}  ${C.bold}Q: ${m.question}${C.reset}`
+    );
+    lines.push(
+      `${C.cyan}│${C.reset}     Outcome: ${outcomeColor}${C.bold}${m.outcome}${C.reset}`
+    );
+    const evShort =
+      m.evidence.length > 80 ? m.evidence.slice(0, 77) + "..." : m.evidence;
+    lines.push(`${C.cyan}│${C.reset}     Evidence: ${C.dim}${evShort}${C.reset}`);
+    if (m.sourceUrl ?? m.source) {
+      lines.push(
+        `${C.cyan}│${C.reset}     Source: ${C.dim}${(m.sourceUrl ?? m.source).slice(0, 60)}${C.reset}`
+      );
+    }
+    if (m.txSignature) {
+      lines.push(
+        `${C.cyan}│${C.reset}     Solscan: ${C.dim}https://solscan.io/tx/${m.txSignature.slice(0, 20)}...${C.reset}`
+      );
+    }
+    lines.push(`${C.cyan}│${C.reset}`);
+  }
+
+  lines.push(`${C.cyan}└${"─".repeat(W - 2)}┘${C.reset}`);
+  return lines.join("\n");
+}
+
+export function renderStats(stats: ProofStats, oracle: OracleInfo): string {
+  const lines: string[] = [];
+  lines.push(`\n${C.cyan}${C.bold}=== ORACLE STATS — ${oracle.name.toUpperCase()} ===${C.reset}\n`);
+  lines.push(box("Total proof batches:", String(stats.totalProofs)));
+  lines.push(box("Total markets resolved:", String(stats.totalMarkets)));
+  lines.push(box("Avg markets/batch:", stats.avgMarketsPerProof.toFixed(1)));
+  lines.push(box("Trust Score:", `${C.green}${stats.trustScore}%${C.reset} (${stats.disputes} disputes, ${stats.overturned} overturned)`));
+  lines.push(box("Date range:", `${stats.dateRange.earliest} → ${stats.dateRange.latest}`));
+  lines.push(box("Network:", oracle.network));
+  lines.push("");
+
+  // By tier
+  lines.push(`${C.bold}  By Tier:${C.reset}`);
+  const maxTier = Math.max(...Object.values(stats.byTier));
   for (const [tier, count] of Object.entries(stats.byTier).sort()) {
-    const info = tierDescription(Number(tier));
-    const pct = ((count / stats.totalMarkets) * 100).toFixed(1);
-    lines.push(`    Tier ${tier} (${info.name}): ${count} markets (${pct}%)`);
+    const tierNames: Record<string, string> = { "1": "Trustless", "2": "Verified", "3": "AI Research" };
+    const name = tierNames[tier] ?? `Tier ${tier}`;
+    lines.push(`    Tier ${tier} (${name.padEnd(11)}) ${String(count).padStart(3)}  ${C.cyan}${bar(count, maxTier)}${C.reset}`);
+  }
+  lines.push("");
+
+  // By category
+  lines.push(`${C.bold}  By Category:${C.reset}`);
+  const maxCat = Math.max(...Object.values(stats.byCategory));
+  for (const [cat, count] of Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1])) {
+    lines.push(`    ${cat.padEnd(18)} ${String(count).padStart(3)}  ${C.cyan}${bar(count, maxCat)}${C.reset}`);
+  }
+  lines.push("");
+
+  // By layer
+  lines.push(`${C.bold}  By Layer:${C.reset}`);
+  const maxLayer = Math.max(...Object.values(stats.byLayer));
+  for (const [layer, count] of Object.entries(stats.byLayer)) {
+    lines.push(`    ${layer.padEnd(18)} ${String(count).padStart(3)}  ${C.cyan}${bar(count, maxLayer)}${C.reset}`);
   }
 
-  lines.push("", "  By Category:");
-  const sortedCats = Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1]);
-  for (const [cat, count] of sortedCats) {
-    const bar = "#".repeat(Math.ceil(count / stats.totalMarkets * 30));
-    lines.push(`    ${cat.padEnd(20)} ${String(count).padEnd(4)} ${bar}`);
-  }
+  return lines.join("\n");
+}
 
-  lines.push("", "  By Outcome:");
-  for (const [outcome, count] of Object.entries(stats.byOutcome).sort()) {
-    const pct = ((count / stats.totalMarkets) * 100).toFixed(1);
-    lines.push(`    ${outcome.padEnd(6)} ${count} (${pct}%)`);
-  }
+export function renderComparison(): string {
+  const lines: string[] = [];
+  lines.push(`\n${C.cyan}${C.bold}=== TRUST COMPARISON ===${C.reset}\n`);
 
-  lines.push("", "  By Layer:");
-  for (const [layer, count] of Object.entries(stats.byLayer).sort()) {
-    lines.push(`    ${layer.padEnd(10)} ${count} markets`);
-  }
+  const headers = ["Feature", "Baozi", "Polymarket", "Kalshi"];
+  const rows = [
+    ["Evidence stored", "IPFS + On-chain ✅", "None ❌", "None ❌"],
+    ["Proof public", "YES — full trail ✅", "NO ❌", "NO ❌"],
+    ["Multisig", "Squads (2-of-2) ✅", "UMA vote ⚠️", "Centralized ❌"],
+    ["On-chain TX", "Visible ✅", "Visible ✅", "Partial ⚠️"],
+    ["Dispute window", "6 hours ✅", "2 hours ⚠️", "None ❌"],
+    ["Resolution time", "3min–24h ✅", "Variable", "Variable"],
+    ["Transparency", `${C.green}FULL ✅${C.reset}`, "PARTIAL ⚠️", "MINIMAL ❌"],
+  ];
 
-  // Trust metrics
-  const disputes = 0; // No disputes in current data
-  const overturned = 0;
-  const trustScore = stats.totalMarkets > 0 ? ((stats.totalMarkets - overturned) / stats.totalMarkets * 100).toFixed(1) : "N/A";
+  const colW = [20, 22, 14, 12];
+  const divider = `  ${colW.map((w) => "─".repeat(w)).join("┼")}`;
 
   lines.push(
-    "",
-    "  Trust Metrics:",
-    `    Trust Score:           ${trustScore}%`,
-    `    Disputes filed:        ${disputes}`,
-    `    Resolutions overturned: ${overturned}`,
-    `    Perfect record:        ${disputes === 0 ? "YES" : "NO"}`,
+    "  " + headers.map((h, i) => h.padEnd(colW[i])).join("│")
   );
+  lines.push(divider);
+  for (const row of rows) {
+    lines.push("  " + row.map((cell, i) => cell.padEnd(colW[i])).join("│"));
+  }
 
   return lines.join("\n");
 }
 
-// Render trust comparison table
-export function renderComparison(): string {
-  const rows = [
-    ["Feature", "Baozi", "Polymarket", "Kalshi"],
-    ["Evidence stored", "IPFS + On-chain", "None", "None"],
-    ["Proof public", "YES - full trail", "NO", "NO"],
-    ["Resolution method", "Grandma Mei + Pyth", "UMA Oracle", "Internal"],
-    ["Multisig verified", "Squads (2-of-2)", "UMA vote", "Centralized"],
-    ["On-chain TX", "Visible (Solscan)", "Visible", "Private"],
-    ["Dispute window", "6 hours", "2 hours", "N/A"],
-    ["Evidence trail", "FULL (source+proof)", "NONE", "NONE"],
-    ["Oracle tiers", "3 (Trustless/Verified/AI)", "1", "1"],
-    ["Transparency", "FULL", "PARTIAL", "MINIMAL"],
-  ];
+export function generateHTML(proofs: Proof[], stats: ProofStats, oracle: OracleInfo): string {
+  const tierNames: Record<number, string> = { 1: "Trustless", 2: "Verified", 3: "AI Research" };
 
-  const colWidths = rows[0].map((_, i) =>
-    Math.max(...rows.map(r => r[i]?.length || 0)) + 2
-  );
+  const proofCards = proofs
+    .map((proof) => {
+      const markets = proof.markets
+        .map(
+          (m) => `
+        <div class="market">
+          <div class="question">${escHtml(m.question)}</div>
+          <div class="outcome ${m.outcome === "YES" ? "yes" : "no"}">${m.outcome}</div>
+          <div class="evidence">${escHtml(m.evidence)}</div>
+          <div class="links">
+            ${m.sourceUrl ? `<a href="${m.sourceUrl}" target="_blank">Source ↗</a>` : ""}
+            ${m.txSignature ? `<a href="https://solscan.io/tx/${m.txSignature}" target="_blank">Solscan ↗</a>` : ""}
+          </div>
+        </div>`
+        )
+        .join("");
 
-  const separator = colWidths.map(w => BOX.h.repeat(w)).join(BOX.cross);
-
-  const lines = [
-    "",
-    "=== TRUST COMPARISON: BAOZI vs THE REST ===",
-    "",
-    separator,
-    rows[0].map((cell, i) => cell.padEnd(colWidths[i])).join(BOX.v),
-    separator,
-    ...rows.slice(1).map(row =>
-      row.map((cell, i) => cell.padEnd(colWidths[i])).join(BOX.v)
-    ),
-    separator,
-    "",
-    "Baozi is the ONLY prediction market platform that publishes full evidence",
-    "trails for every single resolution. Every proof is verifiable, every",
-    "decision is transparent, every outcome has receipts.",
-  ];
-
-  return lines.join("\n");
-}
-
-// Generate HTML dashboard
-export function generateHTML(proofs: ProofBatch[], stats: OracleStats): string {
-  const marketsHTML = proofs.flatMap(batch =>
-    batch.markets.map(m => {
-      const tier = tierDescription(batch.tier);
-      const isUrl = m.source.startsWith("http://") || m.source.startsWith("https://");
-      const sourceLink = isUrl
-        ? `<a href="${encodeURI(m.source)}" target="_blank">${escapeHTML(m.source)}</a>`
-        : `<span>${escapeHTML(m.source)}</span>`;
       return `
-    <div class="proof-card">
-      <div class="proof-header">
-        <span class="tier tier-${escapeHTML(String(batch.tier))}">${escapeHTML(tier.name)}</span>
-        <span class="category">${escapeHTML(batch.category)}</span>
-        <span class="date">${escapeHTML(batch.date)}</span>
-      </div>
-      <h3>${escapeHTML(m.question)}</h3>
-      <div class="outcome outcome-${escapeHTML(m.outcome.toLowerCase())}">${escapeHTML(m.outcome)}</div>
-      <div class="evidence">
-        <strong>Evidence:</strong> ${escapeHTML(m.evidence)}
-      </div>
-      <div class="links">
-        ${sourceLink}
-        <a href="${encodeURI(solscanUrl(m.pda))}" target="_blank">Solscan</a>
-        <code>${escapeHTML(m.pda.slice(0, 12))}...${escapeHTML(m.pda.slice(-4))}</code>
-      </div>
-    </div>`;
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">${escHtml(proof.title)}</div>
+          <div class="card-meta">
+            <span class="badge tier">${tierNames[proof.tier] ?? `Tier ${proof.tier}`}</span>
+            <span class="badge layer">${proof.layer}</span>
+            <span class="badge cat">${proof.category}</span>
+            <span class="date">${proof.date}</span>
+          </div>
+        </div>
+        <div class="markets">${markets}</div>
+        <div class="resolved-by">Resolved by: ${escHtml(proof.resolvedBy)}</div>
+      </div>`;
     })
-  ).join("\n");
-
-  const tierRows = Object.entries(stats.byTier).map(([tier, count]) => {
-    const info = tierDescription(Number(tier));
-    const pct = stats.totalMarkets > 0 ? ((count / stats.totalMarkets) * 100).toFixed(1) : "0";
-    return `<tr><td>Tier ${escapeHTML(tier)}</td><td>${escapeHTML(info.name)}</td><td>${escapeHTML(String(count))}</td><td>${escapeHTML(pct)}%</td></tr>`;
-  }).join("\n");
-
-  const catRows = Object.entries(stats.byCategory)
-    .sort((a, b) => b[1] - a[1])
-    .map(([cat, count]) => {
-      const pct = stats.totalMarkets > 0 ? ((count / stats.totalMarkets) * 100).toFixed(1) : "0";
-      return `<tr><td>${escapeHTML(cat)}</td><td>${escapeHTML(String(count))}</td><td>${escapeHTML(pct)}%</td></tr>`;
-    }).join("\n");
+    .join("");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trust Proof Explorer — Baozi Markets</title>
-  <style>
-    :root { --bg: #0a0a0f; --card: #12121a; --border: #1a1a2e; --text: #e0e0e0; --accent: #6c5ce7; --green: #00b894; --red: #d63031; --yellow: #fdcb6e; }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 1200px; margin: 0 auto; }
-    h1 { color: var(--accent); font-size: 1.5rem; margin-bottom: 0.5rem; }
-    h2 { color: var(--accent); font-size: 1.1rem; margin: 1.5rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
-    h3 { font-size: 0.95rem; margin: 0.3rem 0; }
-    .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 1.5rem; }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin: 1rem 0; }
-    .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
-    .stat-value { font-size: 1.5rem; font-weight: bold; color: var(--accent); }
-    .stat-label { font-size: 0.75rem; color: #888; }
-    .proof-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 0.5rem 0; }
-    .proof-header { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; font-size: 0.8rem; }
-    .tier { padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; }
-    .tier-1 { background: var(--green); color: #000; }
-    .tier-2 { background: var(--yellow); color: #000; }
-    .tier-3 { background: var(--accent); color: #fff; }
-    .category { color: #888; }
-    .date { color: #666; margin-left: auto; }
-    .outcome { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; margin: 0.3rem 0; }
-    .outcome-yes { background: rgba(0,184,148,0.2); color: var(--green); }
-    .outcome-no { background: rgba(214,48,49,0.2); color: var(--red); }
-    .evidence { font-size: 0.85rem; color: #aaa; margin: 0.5rem 0; }
-    .links { display: flex; gap: 1rem; font-size: 0.8rem; margin-top: 0.5rem; }
-    .links a { color: var(--accent); text-decoration: none; }
-    .links a:hover { text-decoration: underline; }
-    .links code { background: var(--bg); padding: 2px 4px; border-radius: 3px; font-size: 0.75rem; color: #666; }
-    table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.85rem; }
-    th, td { padding: 0.4rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border); }
-    th { color: var(--accent); font-weight: 600; }
-    .compare-table td:nth-child(2) { color: var(--green); font-weight: bold; }
-    .trust-badge { text-align: center; padding: 1.5rem; margin: 1rem 0; background: linear-gradient(135deg, rgba(108,92,231,0.1), rgba(0,184,148,0.1)); border-radius: 12px; border: 1px solid var(--border); }
-    .trust-badge .score { font-size: 2.5rem; font-weight: bold; color: var(--green); }
-    .trust-badge .label { font-size: 0.85rem; color: #888; }
-    footer { margin-top: 2rem; text-align: center; color: #444; font-size: 0.75rem; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trust Proof Explorer — Baozi</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --text: #c9d1d9; --muted: #8b949e; --yellow: #d29922;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',monospace; padding: 24px; }
+  h1 { color: var(--accent); font-size: 1.8rem; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); margin-bottom: 32px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 16px; margin-bottom: 32px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .stat-value { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  .stat-label { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+  .section-title { font-size: 1.2rem; font-weight: 600; margin: 32px 0 16px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .cards { display: grid; gap: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+  .card-title { font-weight: 600; font-size: 1.05rem; margin-bottom: 8px; }
+  .card-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .badge { padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge.tier { background: #1f3a5f; color: var(--accent); }
+  .badge.layer { background: #1b2a1b; color: var(--green); }
+  .badge.cat { background: #2d2000; color: var(--yellow); }
+  .date { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+  .markets { padding: 16px 20px; display: grid; gap: 16px; }
+  .market { border-left: 3px solid var(--border); padding-left: 12px; }
+  .question { font-weight: 500; margin-bottom: 6px; }
+  .outcome { display: inline-block; padding: 2px 10px; border-radius: 4px; font-weight: 700; font-size: 0.85rem; margin-bottom: 6px; }
+  .outcome.yes { background: #1b3a1b; color: var(--green); }
+  .outcome.no { background: #3a1b1b; color: var(--red); }
+  .evidence { color: var(--muted); font-size: 0.88rem; margin-bottom: 6px; line-height: 1.5; }
+  .links { display: flex; gap: 12px; }
+  .links a { color: var(--accent); font-size: 0.82rem; text-decoration: none; }
+  .links a:hover { text-decoration: underline; }
+  .resolved-by { padding: 10px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.82rem; }
+  .compare-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .compare-table th { background: var(--surface); color: var(--accent); padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+  .compare-table td { padding: 10px 14px; border: 1px solid var(--border); font-size: 0.9rem; }
+  .compare-table tr:nth-child(even) td { background: #0d1117; }
+  footer { margin-top: 48px; text-align: center; color: var(--muted); font-size: 0.8rem; }
+</style>
 </head>
 <body>
-  <h1>TRUST PROOF EXPLORER</h1>
-  <div class="subtitle">Every resolution has receipts. Grandma Mei oracle — Baozi prediction markets.</div>
+<h1>🔍 Trust Proof Explorer</h1>
+<p class="subtitle">${oracle.name} — Every resolution has receipts. · ${oracle.network}</p>
 
-  <div class="trust-badge">
-    <div class="score">100%</div>
-    <div class="label">Trust Score — ${escapeHTML(String(stats.totalMarkets))} markets resolved, 0 disputes, 0 overturned</div>
-  </div>
+<div class="stats-grid">
+  <div class="stat-card"><div class="stat-value">${stats.totalMarkets}</div><div class="stat-label">Markets Resolved</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.totalProofs}</div><div class="stat-label">Proof Batches</div></div>
+  <div class="stat-card"><div class="stat-value" style="color:var(--green)">${stats.trustScore}%</div><div class="stat-label">Trust Score</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.disputes}</div><div class="stat-label">Disputes Filed</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.dateRange.earliest}</div><div class="stat-label">First Resolution</div></div>
+  <div class="stat-card"><div class="stat-value">${stats.dateRange.latest}</div><div class="stat-label">Latest Resolution</div></div>
+</div>
 
-  <div class="stats-grid">
-    <div class="stat"><div class="stat-value">${escapeHTML(String(stats.totalMarkets))}</div><div class="stat-label">Markets Resolved</div></div>
-    <div class="stat"><div class="stat-value">${escapeHTML(String(stats.totalBatches))}</div><div class="stat-label">Proof Batches</div></div>
-    <div class="stat"><div class="stat-value">${escapeHTML(String(Object.keys(stats.byCategory).length))}</div><div class="stat-label">Categories</div></div>
-    <div class="stat"><div class="stat-value">0</div><div class="stat-label">Disputes</div></div>
-    <div class="stat"><div class="stat-value">${escapeHTML(String(stats.uniqueSources.length))}</div><div class="stat-label">Unique Sources</div></div>
-    <div class="stat"><div class="stat-value">${escapeHTML(stats.avgMarketsPerBatch.toFixed(1))}</div><div class="stat-label">Avg/Batch</div></div>
-  </div>
+<div class="section-title">Resolution Proofs</div>
+<div class="cards">${proofCards}</div>
 
-  <h2>Resolution Proofs</h2>
-  ${marketsHTML}
+<div class="section-title">Baozi vs The Rest</div>
+<table class="compare-table">
+  <thead><tr><th>Feature</th><th>Baozi</th><th>Polymarket</th><th>Kalshi</th></tr></thead>
+  <tbody>
+    <tr><td>Evidence stored</td><td>IPFS + On-chain ✅</td><td>None ❌</td><td>None ❌</td></tr>
+    <tr><td>Proof public</td><td>YES — full trail ✅</td><td>NO ❌</td><td>NO ❌</td></tr>
+    <tr><td>Multisig</td><td>Squads (2-of-2) ✅</td><td>UMA vote ⚠️</td><td>Centralized ❌</td></tr>
+    <tr><td>On-chain TX</td><td>Visible ✅</td><td>Visible ✅</td><td>Partial ⚠️</td></tr>
+    <tr><td>Dispute window</td><td>6 hours ✅</td><td>2 hours ⚠️</td><td>None ❌</td></tr>
+    <tr><td>Transparency</td><td><strong>FULL ✅</strong></td><td>PARTIAL ⚠️</td><td>MINIMAL ❌</td></tr>
+  </tbody>
+</table>
 
-  <h2>Oracle Stats</h2>
-  <h3>By Tier</h3>
-  <table>
-    <tr><th>Tier</th><th>Method</th><th>Count</th><th>%</th></tr>
-    ${tierRows}
-  </table>
-
-  <h3>By Category</h3>
-  <table>
-    <tr><th>Category</th><th>Count</th><th>%</th></tr>
-    ${catRows}
-  </table>
-
-  <h2>Trust Comparison</h2>
-  <table class="compare-table">
-    <tr><th>Feature</th><th>Baozi</th><th>Polymarket</th><th>Kalshi</th></tr>
-    <tr><td>Evidence stored</td><td>IPFS + On-chain</td><td>None</td><td>None</td></tr>
-    <tr><td>Proof public</td><td>YES - full trail</td><td>NO</td><td>NO</td></tr>
-    <tr><td>Resolution method</td><td>Grandma Mei + Pyth</td><td>UMA Oracle</td><td>Internal</td></tr>
-    <tr><td>Multisig</td><td>Squads (2-of-2)</td><td>UMA vote</td><td>Centralized</td></tr>
-    <tr><td>Evidence trail</td><td>FULL</td><td>NONE</td><td>NONE</td></tr>
-    <tr><td>Oracle tiers</td><td>3</td><td>1</td><td>1</td></tr>
-    <tr><td>Transparency</td><td>FULL</td><td>PARTIAL</td><td>MINIMAL</td></tr>
-  </table>
-
-  <footer>
-    Trust Proof Explorer v1.0.0 — Built for Baozi Markets<br>
-    Program: FWyTPzm5cfJwRKzfkscxozatSxF6Qu78JQovQUwKPruJ<br>
-    Data: baozi.bet/api/agents/proofs | Generated: ${new Date().toISOString().slice(0, 16)}
-  </footer>
+<footer>Generated by Trust Proof Explorer · Program: ${oracle.program} · <a href="https://baozi.bet" style="color:var(--accent)">baozi.bet</a></footer>
 </body>
 </html>`;
 }
 
-function escapeHTML(text: string): string {
-  return String(text)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
