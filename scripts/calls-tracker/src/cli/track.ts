@@ -1,39 +1,34 @@
-import { loadDB } from "../storage.ts";
+import { loadStore } from "../lib/store.ts";
 
 const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" };
-
 const args = process.argv.slice(2);
-const id = args[args.indexOf("--id") + 1] ?? null;
-const caller = args[args.indexOf("--caller") + 1] ?? null;
+const callerFilter = args[0] ?? null;
 
-const db = loadDB();
+const store = loadStore();
+let calls = store.calls;
+if (callerFilter) calls = calls.filter(c => c.caller.includes(callerFilter));
 
-const calls = id
-  ? db.calls.filter(c => c.id === id)
-  : caller
-  ? db.calls.filter(c => c.caller === caller)
-  : db.calls;
-
-console.log(`\n${C.cyan}${C.bold}=== CALLS TRACKER ===${C.reset}`);
-console.log(`${C.dim}Showing ${calls.length} call(s)${C.reset}\n`);
+console.log(`\n${C.cyan}${C.bold}=== CALLS TRACKER ===${C.reset}\n`);
+console.log(`${C.dim}${calls.length} call(s) tracked${callerFilter ? ` for "${callerFilter}"` : ""}${C.reset}\n`);
 
 if (calls.length === 0) {
-  console.log(`${C.dim}No calls found. Try: bun run call -- "Your prediction" --caller yourname${C.reset}\n`);
+  console.log(`No calls yet. Run 'bun run call -- --prediction "your prediction"' to add one.`);
   process.exit(0);
 }
 
-for (const call of calls) {
-  const status = call.resolvedAt
-    ? call.resolution === "resolved_correct"
-      ? `${C.green}✓ CORRECT${C.reset}`
-      : `${C.red}✗ WRONG${C.reset}`
-    : `${C.yellow}⏳ OPEN${C.reset}`;
+for (const call of calls.sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+  const statusColor = call.status === "resolved"
+    ? (call.outcome === call.betSide ? C.green : C.red)
+    : C.yellow;
+  const statusStr = call.status === "resolved"
+    ? `${call.outcome} (${call.outcome === call.betSide ? "✅ WIN" : "❌ LOSS"})`
+    : call.status.toUpperCase();
 
-  console.log(`${C.bold}[${call.id}]${C.reset} ${status}`);
-  console.log(`  ${C.dim}Caller:${C.reset}  ${call.caller}`);
-  console.log(`  ${C.dim}Call:${C.reset}    ${call.prediction}`);
-  console.log(`  ${C.dim}Question:${C.reset} ${call.question}`);
-  console.log(`  ${C.dim}Bet:${C.reset}     ${call.bet} SOL · Close: ${call.closeTime.slice(0, 10)}`);
-  if (call.outcome) console.log(`  ${C.dim}Outcome:${C.reset} ${call.outcome}`);
-  console.log();
+  console.log(`${C.bold}${call.caller}${C.reset} · ${new Date(call.createdAt).toLocaleDateString()}`);
+  console.log(`  📊 "${call.marketQuestion}"`);
+  console.log(`  Side: ${call.betSide === "YES" ? C.green : C.red}${call.betSide}${C.reset} · ${call.betAmount} SOL · Status: ${statusColor}${statusStr}${C.reset}`);
+  if (call.pnl != null) console.log(`  PnL: ${call.pnl >= 0 ? C.green + "+" : C.red}${call.pnl.toFixed(4)} SOL${C.reset}`);
+  console.log(`  Source: ${C.dim}${call.dataSource}${C.reset} · Closes: ${call.closeTime}`);
+  if (call.marketPda) console.log(`  Market: ${C.dim}https://baozi.bet/market/${call.marketPda}${C.reset}`);
+  console.log(`  ID: ${C.dim}${call.id}${C.reset}\n`);
 }

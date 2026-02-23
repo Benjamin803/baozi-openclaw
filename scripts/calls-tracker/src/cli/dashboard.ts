@@ -1,45 +1,48 @@
-import { loadDB, rankCallers } from "../storage.ts";
+import { loadStore } from "../lib/store.ts";
 
 const C = { reset: "\x1b[0m", bold: "\x1b[1m", dim: "\x1b[2m", cyan: "\x1b[36m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m" };
 
-const db = loadDB();
-const ranked = rankCallers(db);
-const openCalls = db.calls.filter(c => !c.resolvedAt).length;
-const resolvedCalls = db.calls.filter(c => c.resolvedAt).length;
+function bar(val: number, max: number, w = 15): string {
+  const f = max > 0 ? Math.round((val / max) * w) : 0;
+  return `${C.cyan}${"█".repeat(f)}${"░".repeat(w - f)}${C.reset}`;
+}
 
-console.log(`\n${C.cyan}${C.bold}╔══════════════════════════════════════════════════════╗`);
-console.log(`║         📊 CALLS TRACKER — REPUTATION BOARD         ║`);
-console.log(`╚══════════════════════════════════════════════════════╝${C.reset}\n`);
-console.log(`${C.dim}Total calls: ${db.calls.length} · Open: ${openCalls} · Resolved: ${resolvedCalls} · Callers: ${ranked.length}${C.reset}\n`);
+function pnl(n: number): string {
+  return n >= 0 ? `${C.green}+${n.toFixed(4)}${C.reset}` : `${C.red}${n.toFixed(4)}${C.reset}`;
+}
 
-if (ranked.length === 0) {
-  console.log(`${C.dim}No calls yet. Run: bun run call -- "BTC will hit $110k by March" --caller your-name${C.reset}\n`);
+const store = loadStore();
+const reps = Object.values(store.callers).sort((a, b) => b.accuracy - a.accuracy);
+
+console.log(`\n${C.cyan}${C.bold}╔══════════════════════════════════════════════════════════╗`);
+console.log(`║          📊 CALLS TRACKER — REPUTATION DASHBOARD        ║`);
+console.log(`╚══════════════════════════════════════════════════════════╝${C.reset}\n`);
+
+if (reps.length === 0) {
+  console.log(`No callers yet. Run 'bun run call' to register a prediction.\n`);
+  console.log(`Example:`);
+  console.log(`  bun run call -- --caller @satoshi --prediction "BTC hits 110k by March" --side YES --amount 0.5\n`);
   process.exit(0);
 }
 
-const header = `${"#".padEnd(3)} ${"Caller".padEnd(16)} ${"Hit%".padStart(5)} ${"W/L".padStart(5)} ${"PnL".padStart(8)} ${"Calls".padStart(6)} ${"Streak".padStart(7)}`;
-console.log(`${C.cyan}${header}${C.reset}`);
-console.log("─".repeat(55));
+const maxAcc = Math.max(...reps.map(r => r.accuracy));
+console.log(`${C.bold}  ${"Caller".padEnd(16)} ${"Acc%".padStart(5)} ${"W/L".padStart(6)} ${"PnL".padStart(9)} ${"Calls".padStart(6)} ${"Streak".padStart(7)}${C.reset}`);
+console.log("  " + "─".repeat(58));
 
-for (const p of ranked) {
-  const rank = p.rank === 1 ? "🥇" : p.rank === 2 ? "🥈" : p.rank === 3 ? "🥉" : `${String(p.rank).padStart(2)}.`;
-  const name = p.name.slice(0, 16).padEnd(16);
-  const hit = `${p.hitRate}%`.padStart(5);
-  const wl = `${p.correct}/${p.wrong}`.padStart(5);
-  const pnlVal = p.pnl > 0 ? `${C.green}+${p.pnl.toFixed(2)}${C.reset}` : p.pnl < 0 ? `${C.red}${p.pnl.toFixed(2)}${C.reset}` : `${C.dim}0.00${C.reset}`;
-  const calls = String(p.totalCalls).padStart(6);
-  const streak = p.streak > 0 ? `${C.green}+${p.streak}🔥${C.reset}` : p.streak < 0 ? `${C.red}${p.streak}❄️${C.reset}` : `${C.dim}—${C.reset}`;
-  console.log(`${rank} ${name} ${hit} ${wl} ${pnlVal.padEnd(8)} ${calls} ${streak}`);
+for (const rep of reps) {
+  const rank = rep.accuracy === maxAcc && rep.totalCalls > 0 ? "🏆" : "  ";
+  const streak = rep.streak > 0 ? `${C.green}+${rep.streak}🔥${C.reset}` : rep.streak < 0 ? `${C.red}${rep.streak}❄️${C.reset}` : `${C.dim}—${C.reset}`;
+  console.log(`${rank}${rep.caller.padEnd(16)} ${String(rep.accuracy).padStart(4)}% ${`${rep.correctCalls}/${rep.wrongCalls}`.padStart(6)} ${pnl(rep.totalPnl).padEnd(9)} ${String(rep.totalCalls).padStart(6)} ${streak}`);
 }
 
-// Recent calls
-if (db.calls.length > 0) {
-  console.log(`\n${C.cyan}${C.bold}Recent Calls:${C.reset}`);
-  for (const call of db.calls.slice(-5).reverse()) {
-    const status = call.resolvedAt
-      ? (call.resolution === "resolved_correct" ? `${C.green}✓ CORRECT${C.reset}` : `${C.red}✗ WRONG${C.reset}`)
-      : `${C.yellow}⏳ OPEN${C.reset}`;
-    console.log(`  [${call.id}] ${call.question.slice(0, 50)}... ${status}`);
+console.log(`\n${C.dim}  Total callers: ${reps.length} · Total calls: ${store.calls.length} · Last updated: ${new Date(store.lastUpdated).toLocaleString()}${C.reset}\n`);
+
+// Open calls
+const open = store.calls.filter(c => c.status !== "resolved");
+if (open.length > 0) {
+  console.log(`${C.yellow}${C.bold}  ⏳ Open Calls (${open.length})${C.reset}`);
+  for (const c of open.slice(0, 5)) {
+    console.log(`  ${C.dim}${c.caller}${C.reset} · "${c.marketQuestion.slice(0, 55)}..." · ${c.betSide} · closes ${c.closeTime}`);
   }
+  console.log();
 }
-console.log();
